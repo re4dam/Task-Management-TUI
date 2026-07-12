@@ -118,9 +118,19 @@ brew install ncurses
    make
    ```
 
-3. Run the application:
+3. Install the application:
+   - **System-wide installation** (installs to `/usr/local/bin`):
+     ```bash
+     sudo make install
+     ```
+   - **User-only installation** (installs to your home directory, e.g. `~/.local/bin`):
+     ```bash
+     make install PREFIX=$HOME/.local
+     ```
+
+4. Run the application from anywhere:
    ```bash
-   ./tui_tasks
+   tui_tasks
    ```
 
 ---

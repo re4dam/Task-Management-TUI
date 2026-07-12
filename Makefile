@@ -5,6 +5,9 @@ LDFLAGS = -lncurses
 TARGET = tui_tasks
 SRCS = src/main.cpp
 
+PREFIX ?= /usr/local
+BINDIR = $(PREFIX)/bin
+
 all: $(TARGET)
 
 $(TARGET): $(SRCS) src/task.hpp src/list.hpp src/storage.hpp src/tui.hpp
@@ -13,4 +16,11 @@ $(TARGET): $(SRCS) src/task.hpp src/list.hpp src/storage.hpp src/tui.hpp
 clean:
 	rm -f $(TARGET)
 
-.PHONY: all clean
+install: $(TARGET)
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(TARGET) $(DESTDIR)$(BINDIR)
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)
+
+.PHONY: all clean install uninstall
