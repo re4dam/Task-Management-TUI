@@ -85,22 +85,37 @@ inline std::vector<std::string> wrap_text(const std::string& text, int width) {
 
 // Prompts user for a text input line inside a centered popup dialog.
 // ESC cancels the dialog.
-inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& cancelled, const std::string& initial_val = "") {
-    std::string input = initial_val;
-    curs_set(1);
-    noecho();
+inline void redraw_input_field(WINDOW* win, int y, int x, int width, const std::string& input) {
     wattron(win, A_UNDERLINE);
     for (int i = 0; i < width; ++i) {
         mvwaddch(win, y, x + i, ' ');
     }
-    if (!initial_val.empty()) {
-        mvwprintw(win, y, x, "%s", initial_val.c_str());
-    }
-    wattroff(win, A_UNDERLINE);
-    wmove(win, y, x + input.length());
-    wrefresh(win);
     
-    int curr_x = x + input.length();
+    std::string visible_part = "";
+    int cursor_offset = 0;
+    if (input.length() < (size_t)width) {
+        visible_part = input;
+        cursor_offset = input.length();
+    } else {
+        visible_part = input.substr(input.length() - width + 1);
+        cursor_offset = width - 1;
+    }
+    
+    mvwprintw(win, y, x, "%s", visible_part.c_str());
+    wattroff(win, A_UNDERLINE);
+    wmove(win, y, x + cursor_offset);
+    wrefresh(win);
+}
+
+// Prompts user for a text input line inside a centered popup dialog.
+// ESC cancels the dialog. Supports horizontal scrolling for inputs exceeding width.
+inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& cancelled, const std::string& initial_val = "") {
+    std::string input = initial_val;
+    curs_set(1);
+    noecho();
+    
+    redraw_input_field(win, y, x, width, input);
+    
     while (true) {
         int ch = wgetch(win);
         if (ch == 27) { // ESC key
@@ -114,19 +129,13 @@ inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& c
         if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
             if (!input.empty()) {
                 input.pop_back();
-                curr_x--;
-                wattron(win, A_UNDERLINE);
-                mvwaddch(win, y, curr_x, ' ');
-                wattroff(win, A_UNDERLINE);
-                wmove(win, y, curr_x);
-                wrefresh(win);
+                redraw_input_field(win, y, x, width, input);
             }
         } else if (ch >= 32 && ch <= 126) {
-            if (input.length() < (size_t)width - 1) {
+            // Cap total input length at 100 characters for safety
+            if (input.length() < 100) {
                 input.push_back(ch);
-                mvwaddch(win, y, curr_x, ch);
-                curr_x++;
-                wrefresh(win);
+                redraw_input_field(win, y, x, width, input);
             }
         }
     }
@@ -372,6 +381,103 @@ inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, c
     }
     return date_str + " " + time_val;
 }
+inline std::string show_multiline_editor_dialog(const std::string& title, const std::string& prompt, bool& cancelled, const std::string& initial_val = "") {
+    int height = 15;
+    int width = 60;
+    int start_y = (LINES - height) / 2;
+    int start_x = (COLS - width) / 2;
+    
+    WINDOW* win = newwin(height, width, start_y, start_x);
+    keypad(win, TRUE);
+    box(win, 0, 0);
+    
+    wattron(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
+    mvwprintw(win, 0, (width - title.length() - 2) / 2, " %s ", title.c_str());
+    wattroff(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
+    
+    mvwprintw(win, 1, 4, "%s", prompt.c_str());
+    mvwprintw(win, height - 2, (width - 44) / 2, "[Ctrl+X / F2] Save  |  [ESC] Cancel");
+    
+    std::string input = initial_val;
+    curs_set(1);
+    noecho();
+    
+    while (true) {
+        std::vector<std::string> lines;
+        std::string current_para = "";
+        for (char c : input) {
+            if (c == '\n') {
+                auto wrapped_para = wrap_text(current_para, width - 8);
+                if (wrapped_para.empty()) {
+                    lines.push_back("");
+                } else {
+                    lines.insert(lines.end(), wrapped_para.begin(), wrapped_para.end());
+                }
+                current_para = "";
+            } else {
+                current_para += c;
+            }
+        }
+        auto wrapped_para = wrap_text(current_para, width - 8);
+        if (wrapped_para.empty()) {
+            lines.push_back("");
+        } else {
+            lines.insert(lines.end(), wrapped_para.begin(), wrapped_para.end());
+        }
+        
+        for (int r = 2; r < height - 2; ++r) {
+            wmove(win, r, 4);
+            wclrtoeol(win);
+            mvwaddch(win, r, width - 1, ACS_VLINE);
+        }
+        
+        int max_lines_to_draw = height - 5;
+        for (int i = 0; i < (int)lines.size() && i < max_lines_to_draw; ++i) {
+            mvwprintw(win, 2 + i, 4, "%s", lines[i].c_str());
+        }
+        
+        int cursor_y = 2 + (int)lines.size() - 1;
+        if (cursor_y >= height - 3) {
+            cursor_y = height - 3;
+        }
+        int cursor_x = 4 + (int)lines.back().length();
+        if (cursor_x >= width - 4) {
+            cursor_x = width - 4;
+        }
+        
+        wmove(win, cursor_y, cursor_x);
+        wrefresh(win);
+        
+        int ch = wgetch(win);
+        if (ch == 27) { // ESC
+            delwin(win);
+            cancelled = true;
+            curs_set(0);
+            return "";
+        }
+        if (ch == 24 || ch == KEY_F(2) || ch == 4) { // Ctrl+X, F2, Ctrl+D
+            delwin(win);
+            cancelled = false;
+            curs_set(0);
+            return input;
+        }
+        if (ch == '\n' || ch == '\r') {
+            if (lines.size() < (size_t)max_lines_to_draw) {
+                input.push_back('\n');
+            }
+        } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+            if (!input.empty()) {
+                input.pop_back();
+            }
+        } else if (ch >= 32 && ch <= 126) {
+            if (input.length() < 400 && lines.size() <= (size_t)max_lines_to_draw) {
+                if (lines.back().length() < (size_t)width - 8 || lines.size() < (size_t)max_lines_to_draw) {
+                    input.push_back(ch);
+                }
+            }
+        }
+    }
+}
 
 inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out) {
     int height = 14;
@@ -400,11 +506,23 @@ inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::s
     
     // Prompt 2: Description
     mvwprintw(win, 5, 4, "2. Description (optional):");
-    std::string desc = get_input_field(win, 6, 4, width - 8, cancelled);
+    mvwprintw(win, 6, 4, "(Opening Description Editor...)");
+    wrefresh(win);
+    std::string desc = show_multiline_editor_dialog("Task Description", "Type description below:", cancelled);
+    touchwin(win);
+    wrefresh(win);
     if (cancelled) {
         delwin(win);
         return false;
     }
+    std::string desc_snippet = desc;
+    if (desc_snippet.length() > (size_t)width - 12) {
+        desc_snippet = desc_snippet.substr(0, width - 15) + "...";
+    }
+    for (char& c : desc_snippet) {
+        if (c == '\n') c = ' ';
+    }
+    mvwprintw(win, 6, 4, "%-52s", desc_snippet.c_str());
     
     // Prompt 3: Date/Time Preset Selector
     std::string time_prompt = (type == TaskType::Activity) ? "3. Choose Start Date/Time:" : "3. Choose Deadline Date/Time:";
@@ -454,6 +572,18 @@ inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, 
     
     bool cancelled = false;
     
+    // Draw initial description snippet
+    std::string init_desc_snippet = init_desc;
+    if (init_desc_snippet.length() > (size_t)width - 12) {
+        init_desc_snippet = init_desc_snippet.substr(0, width - 15) + "...";
+    }
+    for (char& c : init_desc_snippet) {
+        if (c == '\n') c = ' ';
+    }
+    mvwprintw(win, 5, 4, "2. Description (optional):");
+    mvwprintw(win, 6, 4, "%-52s", init_desc_snippet.c_str());
+    wrefresh(win);
+    
     // Prompt 1: Title
     mvwprintw(win, 2, 4, "1. Task Title:");
     std::string title = get_input_field(win, 3, 4, width - 8, cancelled, init_title);
@@ -464,11 +594,23 @@ inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, 
     
     // Prompt 2: Description
     mvwprintw(win, 5, 4, "2. Description (optional):");
-    std::string desc = get_input_field(win, 6, 4, width - 8, cancelled, init_desc);
+    mvwprintw(win, 6, 4, "(Opening Description Editor...)");
+    wrefresh(win);
+    std::string desc = show_multiline_editor_dialog("Task Description", "Type description below:", cancelled, init_desc);
+    touchwin(win);
+    wrefresh(win);
     if (cancelled) {
         delwin(win);
         return false;
     }
+    std::string desc_snippet = desc;
+    if (desc_snippet.length() > (size_t)width - 12) {
+        desc_snippet = desc_snippet.substr(0, width - 15) + "...";
+    }
+    for (char& c : desc_snippet) {
+        if (c == '\n') c = ' ';
+    }
+    mvwprintw(win, 6, 4, "%-52s", desc_snippet.c_str());
     
     // Prompt 3: Date/Time Preset Selector
     std::string time_prompt = (type == TaskType::Activity) ? "3. Choose Start Date/Time:" : "3. Choose Deadline Date/Time:";
