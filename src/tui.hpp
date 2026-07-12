@@ -118,10 +118,23 @@ inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& c
     
     while (true) {
         int ch = wgetch(win);
-        if (ch == 27) { // ESC key
-            cancelled = true;
-            curs_set(0);
-            return "";
+        if (ch == 27) { // ESC key or Alt key sequence
+            nodelay(win, TRUE);
+            int next_ch = wgetch(win);
+            nodelay(win, FALSE);
+            if (next_ch == KEY_BACKSPACE || next_ch == 127 || next_ch == 8) {
+                while (!input.empty() && input.back() == ' ') {
+                    input.pop_back();
+                }
+                while (!input.empty() && input.back() != ' ') {
+                    input.pop_back();
+                }
+                redraw_input_field(win, y, x, width, input);
+            } else if (next_ch == ERR) {
+                cancelled = true;
+                curs_set(0);
+                return "";
+            }
         }
         if (ch == '\n' || ch == '\r') {
             break;
@@ -449,11 +462,23 @@ inline std::string show_multiline_editor_dialog(const std::string& title, const 
         wrefresh(win);
         
         int ch = wgetch(win);
-        if (ch == 27) { // ESC
-            delwin(win);
-            cancelled = true;
-            curs_set(0);
-            return "";
+        if (ch == 27) { // ESC key or Alt key sequence
+            nodelay(win, TRUE);
+            int next_ch = wgetch(win);
+            nodelay(win, FALSE);
+            if (next_ch == KEY_BACKSPACE || next_ch == 127 || next_ch == 8) {
+                while (!input.empty() && (input.back() == ' ' || input.back() == '\n')) {
+                    input.pop_back();
+                }
+                while (!input.empty() && input.back() != ' ' && input.back() != '\n') {
+                    input.pop_back();
+                }
+            } else if (next_ch == ERR) {
+                delwin(win);
+                cancelled = true;
+                curs_set(0);
+                return "";
+            }
         }
         if (ch == 24 || ch == KEY_F(2) || ch == 4) { // Ctrl+X, F2, Ctrl+D
             delwin(win);
