@@ -2,7 +2,7 @@ CXX = g++
 CXXFLAGS = -Wall -Wextra -std=c++17 -O3
 LDFLAGS = -lncurses
 
-TARGET = tui_tasks
+TARGET = dotui
 SRCS = src/main.cpp
 
 PREFIX ?= /usr/local

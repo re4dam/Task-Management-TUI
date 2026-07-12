@@ -130,7 +130,7 @@ brew install ncurses
 
 4. Run the application from anywhere:
    ```bash
-   tui_tasks
+   dotui
    ```
 
 ---
