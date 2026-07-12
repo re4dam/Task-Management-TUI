@@ -1,0 +1,24 @@
+# Compiled binaries
+tui_tasks
+
+# Object files
+*.o
+*.obj
+
+# Local task databases (now XDG compliant, but block any workspace overrides)
+tasks_data.txt
+
+# Core dumps
+core
+vgcore.*
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
