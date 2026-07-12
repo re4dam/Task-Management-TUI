@@ -269,11 +269,11 @@ inline TaskType show_task_type_dialog(bool& cancelled) {
             wattroff(win, COLOR_PAIR(CP_POPUP_HIGHLIGHT) | A_BOLD);
         }
         
-        mvwprintw(win, 7, (width - 51) / 2, "(Up/Down to select, Enter to choose, ESC to cancel)");
+        mvwprintw(win, 7, (width - 58) / 2, "(Up/Down or j/k to select, Enter to choose, ESC to cancel)");
         wrefresh(win);
         
         int ch = wgetch(win);
-        if (ch == KEY_UP || ch == KEY_DOWN || ch == '\t') {
+        if (ch == KEY_UP || ch == KEY_DOWN || ch == 'j' || ch == 'k' || ch == '\t') {
             selection = (selection == 0) ? 1 : 0;
         } else if (ch == '\n' || ch == '\r') {
             delwin(win);
