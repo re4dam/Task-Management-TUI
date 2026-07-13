@@ -13,17 +13,35 @@ namespace Storage {
 
 inline std::string get_data_filepath() {
     std::string path;
+    std::string old_path;
     const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
     if (xdg_config && *xdg_config != '\0') {
-        path = std::string(xdg_config) + "/task-tui/tasks.txt";
+        path = std::string(xdg_config) + "/dotui/tasks.txt";
+        old_path = std::string(xdg_config) + "/task-tui/tasks.txt";
     } else {
         const char* home = std::getenv("HOME");
         if (home) {
-            path = std::string(home) + "/.config/task-tui/tasks.txt";
+            path = std::string(home) + "/.config/dotui/tasks.txt";
+            old_path = std::string(home) + "/.config/task-tui/tasks.txt";
         } else {
-            path = ".config/task-tui/tasks.txt";
+            path = ".config/dotui/tasks.txt";
+            old_path = ".config/task-tui/tasks.txt";
         }
     }
+
+    try {
+        if (!std::filesystem::exists(path) && std::filesystem::exists(old_path)) {
+            std::filesystem::path fp(path);
+            std::filesystem::path parent = fp.parent_path();
+            if (!parent.empty()) {
+                std::filesystem::create_directories(parent);
+            }
+            std::filesystem::copy_file(old_path, path);
+        }
+    } catch (...) {
+        // Fall back gracefully if filesystem operations fail
+    }
+
     return path;
 }
 

@@ -1,4 +1,4 @@
-# Task Manager TUI (C++)
+# doTUI (C++)
 
 A lightweight, highly responsive Terminal User Interface (TUI) application written in modern C++ for managing categorized tasks, assignments, and activities. Built on top of `ncurses`, this application is optimized for performance, snappiness, and zero screen flickering.
 
@@ -30,7 +30,7 @@ A lightweight, highly responsive Terminal User Interface (TUI) application writt
 - **Relative Countdown Display**: Displays a dynamic, relative countdown (e.g. `(In 2 days, 3 hours)` or `(Overdue by 5 hours)`) underneath the static timestamp in the Task Details Pane.
 
 ### 💾 Storage & Portability
-- **XDG Base Directory Compliance**: Saves configuration dynamically to `$XDG_CONFIG_HOME/task-tui/tasks.txt`. Falls back to `$HOME/.config/task-tui/tasks.txt` if `$XDG_CONFIG_HOME` is unset. Parent directories are created automatically on startup.
+- **XDG Base Directory Compliance**: Saves configuration dynamically to `$XDG_CONFIG_HOME/dotui/tasks.txt`. Falls back to `$HOME/.config/dotui/tasks.txt` if `$XDG_CONFIG_HOME` is unset. Parent directories are created automatically on startup.
 - **Extended Serialization**: Employs a fully backwards-compatible serialization piping layout to save and load recurrence states cleanly.
 
 ---
@@ -137,7 +137,7 @@ brew install ncurses
 
 ## 💾 Storage Format
 
-Data is serialized to the XDG config folder (`$HOME/.config/task-tui/tasks.txt`). The serialization format uses plain piping:
+Data is serialized to the XDG config folder (`$HOME/.config/dotui/tasks.txt`). The serialization format uses plain piping:
 - **Category format**: `L|<Category Name>`
 - **Task format**: `T|<Completed (0/1)>|<Type (ACT/ASM)>|<Title>|<Description>|<DateTime>|<Recurrence (NONE/DAILY/WEEKLY/MONTHLY)>`
 

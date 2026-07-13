@@ -731,6 +731,58 @@ inline int show_snooze_dialog(bool& cancelled) {
 }
 
 
+// Shows help and keybindings modal dialog.
+inline void show_help_dialog() {
+    int height = 18;
+    int width = 72;
+    int start_y = (LINES - height) / 2;
+    int start_x = (COLS - width) / 2;
+    
+    WINDOW* win = newwin(height, width, start_y, start_x);
+    keypad(win, TRUE);
+    box(win, 0, 0);
+    
+    wattron(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
+    mvwprintw(win, 0, (width - 20) / 2, " Help & Keybindings ");
+    wattroff(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
+    
+    int r = 1;
+    wattron(win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
+    mvwprintw(win, r++, 2, "General Navigation:");
+    wattroff(win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
+    mvwprintw(win, r++, 4, "Tab / h / l  - Switch active pane");
+    mvwprintw(win, r++, 4, "/            - Filter tasks (Search)");
+    mvwprintw(win, r++, 4, "?            - Show this help tooltip");
+    mvwprintw(win, r++, 4, "q            - Save and Exit application");
+    
+    r++;
+    wattron(win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    mvwprintw(win, r++, 2, "Category Actions:");
+    wattroff(win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    mvwprintw(win, r++, 4, "j / k        - Scroll list");
+    mvwprintw(win, r++, 4, "n / a        - Create new category");
+    mvwprintw(win, r++, 4, "e            - Rename category");
+    mvwprintw(win, r++, 4, "d / x        - Delete category");
+    mvwprintw(win, r++, 4, "s            - Sort or shift categories");
+    
+    r++;
+    wattron(win, COLOR_PAIR(CP_GREEN) | A_BOLD);
+    mvwprintw(win, r++, 2, "Task Actions:");
+    wattroff(win, COLOR_PAIR(CP_GREEN) | A_BOLD);
+    mvwprintw(win, r++, 4, "j / k        - Scroll list");
+    mvwprintw(win, r++, 4, "Space        - Toggle completion (recurrence)");
+    mvwprintw(win, r++, 4, "n / a / e    - Add / Edit task details");
+    mvwprintw(win, r++, 4, "d / x        - Delete task");
+    mvwprintw(win, r++, 4, "p / m        - Snooze task / Move to category");
+    mvwprintw(win, r++, 4, "s            - Sort or shift task positions");
+    
+    mvwprintw(win, height - 2, (width - 24) / 2, "(Press any key to close)");
+    wrefresh(win);
+    
+    wgetch(win);
+    delwin(win);
+}
+
 } // namespace Tui
 
 #endif // TUI_HPP

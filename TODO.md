@@ -1,6 +1,6 @@
 # Tasks and Bugs Tracking
 
-This file tracks the upcoming ToDo features, known bugs, completed features, and fixed bugs found during the testing of the Task Management TUI application.
+This file tracks the upcoming ToDo features, known bugs, completed features, and fixed bugs found during the testing of the doTUI application.
 
 ---
 

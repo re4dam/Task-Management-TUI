@@ -115,7 +115,8 @@ int main() {
         wattroff(header_win, COLOR_PAIR(Tui::CP_BLUE) | A_BOLD);
         
         wattron(header_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
-        mvwprintw(header_win, 1, (COLS - 24) / 2, "TASK MANAGER TUI - C++");
+        std::string title = "doTUI";
+        mvwprintw(header_win, 1, (COLS - title.length()) / 2, "%s", title.c_str());
         wattroff(header_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
         wnoutrefresh(header_win);
         
@@ -403,6 +404,18 @@ int main() {
                 if (!search_query.empty()) {
                     search_query.clear();
                 }
+            } else if (ch == '?') {
+                Tui::show_help_dialog();
+                touchwin(header_win);
+                touchwin(lists_win);
+                touchwin(tasks_win);
+                touchwin(details_win);
+                touchwin(footer_win);
+                wnoutrefresh(header_win);
+                wnoutrefresh(lists_win);
+                wnoutrefresh(tasks_win);
+                wnoutrefresh(details_win);
+                wnoutrefresh(footer_win);
             } else if (ch == 'q') {
                 Storage::save_data(lists, DATA_FILE);
                 running = false;
