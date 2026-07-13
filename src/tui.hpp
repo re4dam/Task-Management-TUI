@@ -200,6 +200,12 @@ inline bool show_confirm_dialog(const std::string& title, const std::string& mes
         int ch = wgetch(win);
         if (ch == KEY_LEFT || ch == KEY_RIGHT || ch == '\t') {
             selection = !selection;
+        } else if (ch == 'y' || ch == 'Y') {
+            delwin(win);
+            return true;
+        } else if (ch == 'n' || ch == 'N') {
+            delwin(win);
+            return false;
         } else if (ch == '\n' || ch == '\r') {
             delwin(win);
             return selection;
