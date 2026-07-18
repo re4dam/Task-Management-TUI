@@ -6,6 +6,8 @@
 #include <vector>
 #include <algorithm>
 #include <sstream>
+#include <ctime>
+#include <cstdio>
 #include "list.hpp"
 #include "task.hpp"
 #include "keybinds.hpp"
@@ -50,6 +52,33 @@ inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::s
     int offset = mode_str.length() + 4;
     if (mode == Mode::Command) {
         mvwprintw(footer_win, 1, offset, ":%s", command_query.c_str());
+        
+        std::string cmd = command_query;
+        if (!cmd.empty() && cmd[0] == ':') {
+            cmd = cmd.substr(1);
+        }
+        size_t first = cmd.find_first_not_of(" \t\r\n");
+        if (first != std::string::npos) {
+            size_t last = cmd.find_last_not_of(" \t\r\n");
+            cmd = cmd.substr(first, (last - first + 1));
+        }
+        
+        if (cmd.find(' ') == std::string::npos && !cmd.empty()) {
+            std::vector<std::string> valid_cmds = {"quit", "write", "new", "todo", "delete", "edit", "sort"};
+            std::string closest_match = "";
+            for (const auto& vc : valid_cmds) {
+                if (vc.rfind(cmd, 0) == 0) {
+                    closest_match = vc;
+                    break;
+                }
+            }
+            if (!closest_match.empty() && closest_match != cmd) {
+                std::string suggestion = closest_match.substr(cmd.length());
+                wattron(footer_win, A_DIM);
+                wprintw(footer_win, "%s", suggestion.c_str());
+                wattroff(footer_win, A_DIM);
+            }
+        }
     } else if (focus == Focus::Search) {
         mvwprintw(footer_win, 1, offset, "Search: %s", search_query.c_str());
     } else if (!search_query.empty()) {
@@ -59,6 +88,199 @@ inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::s
         mvwprintw(footer_win, 1, offset + (COLS - offset - footer_text.length()) / 2, "%s", footer_text.c_str());
     }
     wrefresh(footer_win);
+}
+
+inline int get_days_in_month(int year, int month) {
+    if (month == 2) {
+        if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))
+            return 29;
+        return 28;
+    }
+    if (month == 4 || month == 6 || month == 9 || month == 11)
+        return 30;
+    return 31;
+}
+
+inline int get_start_weekday(int year, int month) {
+    std::tm tm = {};
+    tm.tm_year = year - 1900;
+    tm.tm_mon = month - 1;
+    tm.tm_mday = 1;
+    std::mktime(&tm);
+    return tm.tm_wday; // 0 = Sunday, 1 = Monday, ...
+}
+
+inline std::string show_calendar_picker(bool& cancelled, const std::string& initial_date) {
+    int cur_year = 2026;
+    int cur_month = 7;
+    int cur_day = 18;
+    
+    std::time_t t = std::time(nullptr);
+    std::tm* now = std::localtime(&t);
+    int today_year = now->tm_year + 1900;
+    int today_month = now->tm_mon + 1;
+    int today_day = now->tm_mday;
+    
+    bool parsed = false;
+    if (!initial_date.empty()) {
+        if (initial_date.length() >= 10 && initial_date[4] == '-' && initial_date[7] == '-') {
+            try {
+                cur_year = std::stoi(initial_date.substr(0, 4));
+                cur_month = std::stoi(initial_date.substr(5, 2));
+                cur_day = std::stoi(initial_date.substr(8, 2));
+                parsed = true;
+            } catch (...) {}
+        }
+    }
+    
+    if (!parsed) {
+        cur_year = today_year;
+        cur_month = today_month;
+        cur_day = today_day;
+    }
+    
+    int width = 34;
+    int height = 13;
+    int start_y = (LINES - height) / 2;
+    int start_x = (COLS - width) / 2;
+    WINDOW* win = newwin(height, width, start_y, start_x);
+    keypad(win, TRUE);
+    
+    std::vector<std::string> month_names = {
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    };
+    
+    bool done = false;
+    cancelled = false;
+    
+    while (!done) {
+        werase(win);
+        wattron(win, COLOR_PAIR(CP_BLUE));
+        box(win, 0, 0);
+        wattroff(win, COLOR_PAIR(CP_BLUE));
+        
+        wattron(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
+        mvwprintw(win, 0, (width - 15) / 2, " Select Date ");
+        wattroff(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
+        
+        std::string month_year_str = month_names[cur_month - 1] + " " + std::to_string(cur_year);
+        mvwprintw(win, 1, 2, "<");
+        mvwprintw(win, 1, width - 3, ">");
+        mvwprintw(win, 1, (width - month_year_str.length()) / 2, "%s", month_year_str.c_str());
+        
+        wattron(win, A_UNDERLINE);
+        mvwprintw(win, 3, 3, "Su Mo Tu We Th Fr Sa");
+        wattroff(win, A_UNDERLINE);
+        
+        int days_in_month = get_days_in_month(cur_year, cur_month);
+        int start_weekday = get_start_weekday(cur_year, cur_month);
+        
+        if (cur_day > days_in_month) cur_day = days_in_month;
+        if (cur_day < 1) cur_day = 1;
+        
+        int current_draw_day = 1;
+        for (int row = 0; row < 6; ++row) {
+            for (int col = 0; col < 7; ++col) {
+                int index = row * 7 + col;
+                if (index < start_weekday) {
+                    continue;
+                }
+                if (current_draw_day > days_in_month) {
+                    break;
+                }
+                
+                int draw_y = 4 + row;
+                int draw_x = 3 + col * 4;
+                
+                bool is_selected = (current_draw_day == cur_day);
+                bool is_today = (cur_year == today_year && cur_month == today_month && current_draw_day == today_day);
+                
+                if (is_selected) {
+                    wattron(win, COLOR_PAIR(CP_POPUP_HIGHLIGHT) | A_BOLD);
+                    mvwprintw(win, draw_y, draw_x, "%2d", current_draw_day);
+                    wattroff(win, COLOR_PAIR(CP_POPUP_HIGHLIGHT) | A_BOLD);
+                } else if (is_today) {
+                    wattron(win, COLOR_PAIR(CP_GREEN) | A_BOLD);
+                    mvwprintw(win, draw_y, draw_x, "%2d", current_draw_day);
+                    wattroff(win, COLOR_PAIR(CP_GREEN) | A_BOLD);
+                } else {
+                    mvwprintw(win, draw_y, draw_x, "%2d", current_draw_day);
+                }
+                current_draw_day++;
+            }
+            if (current_draw_day > days_in_month) {
+                break;
+            }
+        }
+        
+        mvwprintw(win, height - 2, 2, "hjkl/arrows: Move  Enter: Select");
+        
+        wrefresh(win);
+        
+        int ch = wgetch(win);
+        
+        if (ch == 27) { // ESC
+            cancelled = true;
+            done = true;
+        } else if (ch == '\n' || ch == '\r') {
+            done = true;
+        } else if (ch == KEY_LEFT || ch == 'h') {
+            if (cur_day > 1) {
+                cur_day--;
+            } else {
+                if (cur_month > 1) {
+                    cur_month--;
+                } else {
+                    cur_month = 12;
+                    cur_year--;
+                }
+                cur_day = get_days_in_month(cur_year, cur_month);
+            }
+        } else if (ch == KEY_RIGHT || ch == 'l') {
+            if (cur_day < days_in_month) {
+                cur_day++;
+            } else {
+                if (cur_month < 12) {
+                    cur_month++;
+                } else {
+                    cur_month = 1;
+                    cur_year++;
+                }
+                cur_day = 1;
+            }
+        } else if (ch == KEY_UP || ch == 'k') {
+            if (cur_day > 7) {
+                cur_day -= 7;
+            }
+        } else if (ch == KEY_DOWN || ch == 'j') {
+            if (cur_day + 7 <= days_in_month) {
+                cur_day += 7;
+            }
+        } else if (ch == '<' || ch == ',' || ch == '-') {
+            if (cur_month > 1) {
+                cur_month--;
+            } else {
+                cur_month = 12;
+                cur_year--;
+            }
+        } else if (ch == '>' || ch == '.' || ch == '+') {
+            if (cur_month < 12) {
+                cur_month++;
+            } else {
+                cur_month = 1;
+                cur_year++;
+            }
+        }
+    }
+    
+    delwin(win);
+    
+    if (cancelled) return "";
+    
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d", cur_year, cur_month, cur_day);
+    return std::string(buf);
 }
 
 inline void init_tui() {
@@ -462,7 +684,7 @@ inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, c
         "Today",
         "Tomorrow",
         "Next Week",
-        "Custom (Type manually)",
+        "Custom (Calendar Picker)",
         "None (No date/time)"
     };
     
@@ -484,24 +706,12 @@ inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, c
     else if (choice == 1) date_str = get_preset_date(1);
     else if (choice == 2) date_str = get_preset_date(7);
     else { // Custom
-        int height = 8;
-        int width = 60;
-        int start_y = (LINES - height) / 2;
-        int start_x = (COLS - width) / 2;
-        WINDOW* win = newwin(height, width, start_y, start_x);
-        keypad(win, TRUE);
-        box(win, 0, 0);
-        
-        wattron(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
-        mvwprintw(win, 0, (width - 15) / 2, " Custom Date ");
-        wattroff(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
-        
-        mvwprintw(win, 2, 4, "Enter Date/Time (YYYY-MM-DD HH:MM):");
-        mvwprintw(win, 5, (width - 38) / 2, "(Press Enter to submit, ESC to cancel)");
-        
-        std::string typed_val = get_input_field(win, 3, 4, width - 8, cancelled, initial_val, footer_win, global_mode);
-        delwin(win);
-        return typed_val;
+        bool cal_cancelled = false;
+        date_str = show_calendar_picker(cal_cancelled, initial_val);
+        if (cal_cancelled || date_str.empty()) {
+            cancelled = true;
+            return "";
+        }
     }
     
     int height = 9;

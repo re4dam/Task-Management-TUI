@@ -28,6 +28,21 @@ inline std::string trim(const std::string& str) {
     return str.substr(first, (last - first + 1));
 }
 
+inline int levenshtein_distance(const std::string& s1, const std::string& s2) {
+    int len1 = s1.length();
+    int len2 = s2.length();
+    std::vector<std::vector<int>> d(len1 + 1, std::vector<int>(len2 + 1));
+    for (int i = 0; i <= len1; ++i) d[i][0] = i;
+    for (int j = 0; j <= len2; ++j) d[0][j] = j;
+    for (int i = 1; i <= len1; ++i) {
+        for (int j = 1; j <= len2; ++j) {
+            int cost = (s1[i - 1] == s2[j - 1]) ? 0 : 1;
+            d[i][j] = std::min({ d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost });
+        }
+    }
+    return d[len1][len2];
+}
+
 void execute_command(const std::string& command_query, std::vector<List>& lists, size_t& selected_list_idx, size_t& selected_task_idx, Focus& active_focus, bool& running, const std::vector<size_t>& pending_indices, const std::vector<size_t>& completed_indices, WINDOW* footer_win, Mode& active_mode) {
     std::string cmd = command_query;
     if (!cmd.empty() && cmd[0] == ':') {
@@ -47,6 +62,46 @@ void execute_command(const std::string& command_query, std::vector<List>& lists,
     }
     
     std::transform(cmd_name.begin(), cmd_name.end(), cmd_name.begin(), ::tolower);
+    
+    // Autocorrect / Nearest command matching
+    std::vector<std::string> valid_cmds = {"quit", "write", "new", "todo", "delete", "edit", "sort"};
+    bool is_valid = (cmd_name == "q" || cmd_name == "d" || cmd_name == "e" || cmd_name == "s" || cmd_name == "w");
+    if (!is_valid) {
+        for (const auto& vc : valid_cmds) {
+            if (cmd_name == vc) {
+                is_valid = true;
+                break;
+            }
+        }
+    }
+    
+    if (!is_valid) {
+        std::string closest_match = "";
+        int min_dist = 999;
+        
+        for (const auto& vc : valid_cmds) {
+            int d = levenshtein_distance(cmd_name, vc);
+            if (d < min_dist) {
+                min_dist = d;
+                closest_match = vc;
+            }
+        }
+        
+        std::vector<std::pair<std::string, std::string>> short_aliases = {
+            {"d", "delete"}, {"e", "edit"}, {"s", "sort"}, {"w", "write"}, {"q", "quit"}
+        };
+        for (const auto& sa : short_aliases) {
+            int d = levenshtein_distance(cmd_name, sa.first);
+            if (d < min_dist) {
+                min_dist = d;
+                closest_match = sa.second;
+            }
+        }
+        
+        if (min_dist <= 2) {
+            cmd_name = closest_match;
+        }
+    }
     
     if (cmd_name == "q" || cmd_name == "quit") {
         Storage::save_data(lists, DATA_FILE);
@@ -558,6 +613,55 @@ int main() {
                 execute_command(command_query, lists, selected_list_idx, selected_task_idx, active_focus, running, pending_indices, completed_indices, footer_win, active_mode);
                 active_mode = Mode::Normal;
                 command_query.clear();
+            } else if (ch == '\t') { // Tab for autocomplete
+                std::string cmd = command_query;
+                bool leading_colon = false;
+                if (!cmd.empty() && cmd[0] == ':') {
+                    cmd = cmd.substr(1);
+                    leading_colon = true;
+                }
+                cmd = trim(cmd);
+                if (cmd.find(' ') == std::string::npos && !cmd.empty()) {
+                    std::vector<std::string> valid_cmds = {"quit", "write", "new", "todo", "delete", "edit", "sort"};
+                    std::vector<std::string> matches;
+                    for (const auto& vc : valid_cmds) {
+                        if (vc.rfind(cmd, 0) == 0) { // starts with prefix
+                            matches.push_back(vc);
+                        }
+                    }
+                    if (matches.size() == 1) {
+                        std::string completed = matches[0];
+                        if (completed == "new" || completed == "todo" || completed == "sort") {
+                            completed += " ";
+                        }
+                        command_query = (leading_colon ? ":" : "") + completed;
+                    }
+                }
+            } else if (ch == KEY_RIGHT) {
+                std::string cmd = command_query;
+                bool leading_colon = false;
+                if (!cmd.empty() && cmd[0] == ':') {
+                    cmd = cmd.substr(1);
+                    leading_colon = true;
+                }
+                cmd = trim(cmd);
+                if (cmd.find(' ') == std::string::npos && !cmd.empty()) {
+                    std::vector<std::string> valid_cmds = {"quit", "write", "new", "todo", "delete", "edit", "sort"};
+                    std::string closest_match = "";
+                    for (const auto& vc : valid_cmds) {
+                        if (vc.rfind(cmd, 0) == 0) {
+                            closest_match = vc;
+                            break;
+                        }
+                    }
+                    if (!closest_match.empty()) {
+                        std::string completed = closest_match;
+                        if (completed == "new" || completed == "todo" || completed == "sort") {
+                            completed += " ";
+                        }
+                        command_query = (leading_colon ? ":" : "") + completed;
+                    }
+                }
             } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
                 if (!command_query.empty()) {
                     command_query.pop_back();

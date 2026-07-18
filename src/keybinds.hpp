@@ -240,8 +240,6 @@ public:
             auto config = toml::parse_file(path);
             auto keybinds = config["keybinds"].as_table();
             if (keybinds) {
-                mappings.clear();
-                
                 for (auto&& [mode_name, mode_table_node] : *keybinds) {
                     if (mode_table_node.is_table()) {
                         Mode mode = string_to_mode(std::string(mode_name.str()));
