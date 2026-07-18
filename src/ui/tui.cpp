@@ -1,29 +1,12 @@
-#ifndef TUI_HPP
-#define TUI_HPP
-
-#include <ncurses.h>
-#include <string>
-#include <vector>
+#include "tui.hpp"
 #include <algorithm>
 #include <sstream>
 #include <ctime>
 #include <cstdio>
-#include <filesystem>
-#include <fstream>
-#include "list.hpp"
-#include "task.hpp"
-#include "keybinds.hpp"
-
-enum class Focus {
-    Lists,
-    Tasks,
-    Details,
-    Search
-};
 
 namespace Tui {
 
-// Color Pair constants
+// Color Pair constants definition
 const int CP_BLUE = 1;
 const int CP_CYAN = 2;
 const int CP_GREEN = 3;
@@ -32,7 +15,7 @@ const int CP_RED = 5;
 const int CP_POPUP_HEADER = 6;
 const int CP_POPUP_HIGHLIGHT = 7;
 
-inline short string_to_ncurses_color(const std::string& str) {
+short string_to_ncurses_color(const std::string& str) {
     std::string s = str;
     std::transform(s.begin(), s.end(), s.begin(), ::tolower);
     if (s == "black") return COLOR_BLACK;
@@ -46,66 +29,33 @@ inline short string_to_ncurses_color(const std::string& str) {
     return -1; // Default
 }
 
-inline std::string get_config_dir() {
-    std::string path;
-    const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
-    if (xdg_config && *xdg_config != '\0') {
-        path = std::string(xdg_config) + "/dotui";
-    } else {
-        const char* home = std::getenv("HOME");
-        if (home) {
-            path = std::string(home) + "/.config/dotui";
-        } else {
-            path = ".config/dotui";
-        }
-    }
-    return path;
-}
+void apply_theme(const ThemeColors& theme) {
+    short border_unfocused_fg = string_to_ncurses_color(theme.border_unfocused_fg);
+    short border_unfocused_bg = string_to_ncurses_color(theme.border_unfocused_bg);
+    short border_focused_fg = string_to_ncurses_color(theme.border_focused_fg);
+    short border_focused_bg = string_to_ncurses_color(theme.border_focused_bg);
+    short success_fg = string_to_ncurses_color(theme.success_fg);
+    short success_bg = string_to_ncurses_color(theme.success_bg);
+    short warning_fg = string_to_ncurses_color(theme.warning_fg);
+    short warning_bg = string_to_ncurses_color(theme.warning_bg);
+    short danger_fg = string_to_ncurses_color(theme.danger_fg);
+    short danger_bg = string_to_ncurses_color(theme.danger_bg);
+    short popup_header_fg = string_to_ncurses_color(theme.popup_header_fg);
+    short popup_header_bg = string_to_ncurses_color(theme.popup_header_bg);
+    short popup_highlight_fg = string_to_ncurses_color(theme.popup_highlight_fg);
+    short popup_highlight_bg = string_to_ncurses_color(theme.popup_highlight_bg);
 
-inline bool apply_theme(const std::string& theme_name) {
-    short border_unfocused_fg = COLOR_BLUE, border_unfocused_bg = -1;
-    short border_focused_fg = COLOR_CYAN, border_focused_bg = -1;
-    short success_fg = COLOR_GREEN, success_bg = -1;
-    short warning_fg = COLOR_YELLOW, warning_bg = -1;
-    short danger_fg = COLOR_RED, danger_bg = -1;
-    short popup_header_fg = COLOR_WHITE, popup_header_bg = COLOR_BLUE;
-    short popup_highlight_fg = COLOR_BLACK, popup_highlight_bg = COLOR_CYAN;
-    
-    bool loaded = false;
-    if (theme_name != "default" && !theme_name.empty()) {
-        std::string theme_path = get_config_dir() + "/themes/" + theme_name + ".toml";
-        if (std::filesystem::exists(theme_path)) {
-            try {
-                auto tbl = toml::parse_file(theme_path);
-                auto colors = tbl["colors"].as_table();
-                if (colors) {
-                    loaded = true;
-                    auto parse_color = [&](const char* key, short& target) {
-                        auto val = colors->get(key);
-                        if (val && val->is_string()) {
-                            target = string_to_ncurses_color(val->as_string()->get());
-                        }
-                    };
-                    
-                    parse_color("border_unfocused_fg", border_unfocused_fg);
-                    parse_color("border_unfocused_bg", border_unfocused_bg);
-                    parse_color("border_focused_fg", border_focused_fg);
-                    parse_color("border_focused_bg", border_focused_bg);
-                    parse_color("success_fg", success_fg);
-                    parse_color("success_bg", success_bg);
-                    parse_color("warning_fg", warning_fg);
-                    parse_color("warning_bg", warning_bg);
-                    parse_color("danger_fg", danger_fg);
-                    parse_color("danger_bg", danger_bg);
-                    parse_color("popup_header_fg", popup_header_fg);
-                    parse_color("popup_header_bg", popup_header_bg);
-                    parse_color("popup_highlight_fg", popup_highlight_fg);
-                    parse_color("popup_highlight_bg", popup_highlight_bg);
-                }
-            } catch (...) {}
-        }
-    }
-    
+    // Fallbacks
+    if (border_unfocused_fg == -1) border_unfocused_fg = COLOR_BLUE;
+    if (border_focused_fg == -1) border_focused_fg = COLOR_CYAN;
+    if (success_fg == -1) success_fg = COLOR_GREEN;
+    if (warning_fg == -1) warning_fg = COLOR_YELLOW;
+    if (danger_fg == -1) danger_fg = COLOR_RED;
+    if (popup_header_fg == -1) popup_header_fg = COLOR_WHITE;
+    if (popup_header_bg == -1) popup_header_bg = COLOR_BLUE;
+    if (popup_highlight_fg == -1) popup_highlight_fg = COLOR_BLACK;
+    if (popup_highlight_bg == -1) popup_highlight_bg = COLOR_CYAN;
+
     init_pair(CP_BLUE, border_unfocused_fg, border_unfocused_bg);
     init_pair(CP_CYAN, border_focused_fg, border_focused_bg);
     init_pair(CP_GREEN, success_fg, success_bg);
@@ -113,61 +63,9 @@ inline bool apply_theme(const std::string& theme_name) {
     init_pair(CP_RED, danger_fg, danger_bg);
     init_pair(CP_POPUP_HEADER, popup_header_fg, popup_header_bg);
     init_pair(CP_POPUP_HIGHLIGHT, popup_highlight_fg, popup_highlight_bg);
-    
-    return loaded;
 }
 
-inline void save_theme_to_config(const std::string& theme_name) {
-    std::string path = get_config_dir() + "/config.toml";
-    try {
-        toml::table tbl;
-        if (std::filesystem::exists(path)) {
-            tbl = toml::parse_file(path);
-        }
-        toml::table theme_tbl;
-        theme_tbl.insert_or_assign("active", theme_name);
-        tbl.insert_or_assign("theme", theme_tbl);
-        
-        std::ofstream out(path);
-        if (out.is_open()) {
-            out << tbl << "\n";
-        }
-    } catch (...) {}
-}
-
-inline void generate_sample_dracula_theme() {
-    std::string themes_dir = get_config_dir() + "/themes";
-    std::string path = themes_dir + "/dracula.toml";
-    try {
-        if (!std::filesystem::exists(themes_dir)) {
-            std::filesystem::create_directories(themes_dir);
-        }
-        if (!std::filesystem::exists(path)) {
-            std::ofstream out(path);
-            if (out.is_open()) {
-                out << "[colors]\n"
-                    << "border_unfocused_fg = \"blue\"\n"
-                    << "border_unfocused_bg = \"default\"\n"
-                    << "border_focused_fg = \"magenta\"\n"
-                    << "border_focused_bg = \"default\"\n"
-                    << "success_fg = \"green\"\n"
-                    << "success_bg = \"default\"\n"
-                    << "warning_fg = \"yellow\"\n"
-                    << "warning_bg = \"default\"\n"
-                    << "danger_fg = \"red\"\n"
-                    << "danger_bg = \"default\"\n"
-                    << "popup_header_fg = \"white\"\n"
-                    << "popup_header_bg = \"magenta\"\n"
-                    << "popup_highlight_fg = \"black\"\n"
-                    << "popup_highlight_bg = \"magenta\"\n";
-            }
-        }
-    } catch (...) {}
-}
-
-// Forward declarations
-inline int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel = 0);
-inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::string& search_query, const std::string& command_query = "") {
+void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::string& search_query, const std::string& command_query) {
     if (!footer_win) return;
     werase(footer_win);
     wattron(footer_win, COLOR_PAIR(CP_BLUE) | A_BOLD);
@@ -225,7 +123,7 @@ inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::s
     wrefresh(footer_win);
 }
 
-inline int get_days_in_month(int year, int month) {
+int get_days_in_month(int year, int month) {
     if (month == 2) {
         if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))
             return 29;
@@ -236,7 +134,7 @@ inline int get_days_in_month(int year, int month) {
     return 31;
 }
 
-inline int get_start_weekday(int year, int month) {
+int get_start_weekday(int year, int month) {
     std::tm tm = {};
     tm.tm_year = year - 1900;
     tm.tm_mon = month - 1;
@@ -245,7 +143,7 @@ inline int get_start_weekday(int year, int month) {
     return tm.tm_wday; // 0 = Sunday, 1 = Monday, ...
 }
 
-inline std::string show_calendar_picker(bool& cancelled, const std::string& initial_date) {
+std::string show_calendar_picker(bool& cancelled, const std::string& initial_date) {
     int cur_year = 2026;
     int cur_month = 7;
     int cur_day = 18;
@@ -418,7 +316,7 @@ inline std::string show_calendar_picker(bool& cancelled, const std::string& init
     return std::string(buf);
 }
 
-inline void init_tui() {
+void init_tui() {
     initscr();
     set_escdelay(25);
     raw();
@@ -428,7 +326,7 @@ inline void init_tui() {
     start_color();
     use_default_colors();
     
-    // Initialize color pairs (Foreground, Background=-1 for default terminal background)
+    // Initialize default color pairs
     init_pair(CP_BLUE, COLOR_BLUE, -1);
     init_pair(CP_CYAN, COLOR_CYAN, -1);
     init_pair(CP_GREEN, COLOR_GREEN, -1);
@@ -438,11 +336,11 @@ inline void init_tui() {
     init_pair(CP_POPUP_HIGHLIGHT, COLOR_BLACK, COLOR_CYAN);
 }
 
-inline void end_tui() {
+void end_tui() {
     endwin();
 }
 
-inline std::vector<std::string> wrap_text(const std::string& text, int width) {
+std::vector<std::string> wrap_text(const std::string& text, int width) {
     std::vector<std::string> wrapped;
     if (width <= 0) return { text };
     std::stringstream paragraph_stream(text);
@@ -472,9 +370,7 @@ inline std::vector<std::string> wrap_text(const std::string& text, int width) {
     return wrapped;
 }
 
-// Prompts user for a text input line inside a centered popup dialog.
-// ESC cancels the dialog.
-inline void redraw_input_field(WINDOW* win, int y, int x, int width, const std::string& input, int cursor_pos) {
+void redraw_input_field(WINDOW* win, int y, int x, int width, const std::string& input, int cursor_pos) {
     wattron(win, A_UNDERLINE);
     for (int i = 0; i < width; ++i) {
         mvwaddch(win, y, x + i, ' ');
@@ -510,7 +406,7 @@ inline void redraw_input_field(WINDOW* win, int y, int x, int width, const std::
     wrefresh(win);
 }
 
-inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& cancelled, const std::string& initial_val = "", WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
+std::string get_input_field(WINDOW* win, int y, int x, int width, bool& cancelled, const std::string& initial_val, WINDOW* footer_win, Mode* global_mode) {
     std::string input = initial_val;
     int cursor_pos = input.length();
     
@@ -645,8 +541,7 @@ inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& c
     return input;
 }
 
-// Shows a confirmation modal dialog (Yes/No). Returns true if Yes is selected.
-inline bool show_confirm_dialog(const std::string& title, const std::string& message) {
+bool show_confirm_dialog(const std::string& title, const std::string& message) {
     int width = 60;
     std::vector<std::string> wrapped_msg = wrap_text(message, width - 8);
     int height = 7 + wrapped_msg.size();
@@ -704,8 +599,7 @@ inline bool show_confirm_dialog(const std::string& title, const std::string& mes
     }
 }
 
-// Shows input modal dialog for creating a list.
-inline std::string show_list_input_dialog(bool& cancelled, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
+std::string show_list_input_dialog(bool& cancelled, WINDOW* footer_win, Mode* global_mode) {
     int height = 8;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -728,8 +622,7 @@ inline std::string show_list_input_dialog(bool& cancelled, WINDOW* footer_win = 
     return name;
 }
 
-// Shows input modal dialog for renaming a list.
-inline std::string show_list_edit_dialog(const std::string& current_name, bool& cancelled, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
+std::string show_list_edit_dialog(const std::string& current_name, bool& cancelled, WINDOW* footer_win, Mode* global_mode) {
     int height = 8;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -752,8 +645,7 @@ inline std::string show_list_edit_dialog(const std::string& current_name, bool& 
     return name;
 }
 
-// Shows selection dialog to choose task type (Activity vs Assignment)
-inline TaskType show_task_type_dialog(bool& cancelled) {
+TaskType show_task_type_dialog(bool& cancelled) {
     int height = 9;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -803,7 +695,7 @@ inline TaskType show_task_type_dialog(bool& cancelled) {
     }
 }
 
-inline std::string get_preset_date(int days_offset) {
+std::string get_preset_date(int days_offset) {
     std::time_t now = std::time(nullptr);
     std::tm* tm = std::localtime(&now);
     tm->tm_mday += days_offset;
@@ -814,7 +706,7 @@ inline std::string get_preset_date(int days_offset) {
     return std::string(buf);
 }
 
-inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, const std::string& initial_val = "", WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
+std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, const std::string& initial_val, WINDOW* footer_win, Mode* global_mode) {
     std::vector<std::string> options = {
         "Today",
         "Tomorrow",
@@ -876,7 +768,8 @@ inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, c
     }
     return date_str + " " + time_val;
 }
-inline std::string show_multiline_editor_dialog(const std::string& title, const std::string& prompt, bool& cancelled, const std::string& initial_val = "") {
+
+std::string show_multiline_editor_dialog(const std::string& title, const std::string& prompt, bool& cancelled, const std::string& initial_val) {
     int height = 15;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -986,7 +879,7 @@ inline std::string show_multiline_editor_dialog(const std::string& title, const 
     }
 }
 
-inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
+bool show_task_input_dialog(TaskType type, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out, WINDOW* footer_win, Mode* global_mode) {
     int height = 14;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -1062,7 +955,7 @@ inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::s
     return true;
 }
 
-inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, const std::string& init_desc, const std::string& init_time, RecurrenceRule init_recurrence, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
+bool show_task_edit_dialog(TaskType type, const std::string& init_title, const std::string& init_desc, const std::string& init_time, RecurrenceRule init_recurrence, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out, WINDOW* footer_win, Mode* global_mode) {
     int height = 14;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -1150,7 +1043,7 @@ inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, 
     return true;
 }
 
-inline int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel) {
+int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel) {
     int height = 7 + options.size();
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -1202,8 +1095,7 @@ inline int show_selection_dialog(const std::string& title, const std::string& pr
     }
 }
 
-// Shows snooze selection modal.
-inline int show_snooze_dialog(bool& cancelled) {
+int show_snooze_dialog(bool& cancelled) {
     std::vector<std::string> options = {
         "+1 Hour",
         "+1 Day",
@@ -1212,9 +1104,7 @@ inline int show_snooze_dialog(bool& cancelled) {
     return show_selection_dialog("Snooze Task", "Postpone task deadline/starts by:", options, cancelled);
 }
 
-
-// Shows help and keybindings modal dialog.
-inline std::string action_to_description(Action action) {
+std::string action_to_description(Action action) {
     switch (action) {
         case Action::MoveUp: return "Move cursor up / scroll up";
         case Action::MoveDown: return "Move cursor down / scroll down";
@@ -1243,7 +1133,7 @@ inline std::string action_to_description(Action action) {
     }
 }
 
-inline void show_help_dialog(const Keymap& keymap, Mode current_mode) {
+void show_help_dialog(const Keymap& keymap, Mode current_mode) {
     int height = LINES;
     int width = COLS;
     int start_y = 0;
@@ -1340,6 +1230,261 @@ inline void show_help_dialog(const Keymap& keymap, Mode current_mode) {
     delwin(win);
 }
 
-} // namespace Tui
+// Main Layout Draw Functions
+void draw_lists(WINDOW* lists_win, const std::vector<List>& lists, size_t selected_list_idx, Focus active_focus) {
+    werase(lists_win);
+    int lists_w = getmaxx(lists_win);
+    
+    if (active_focus == Focus::Lists) {
+        wattron(lists_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        box(lists_win, 0, 0);
+        mvwprintw(lists_win, 0, 2, " doTUI | Categories ");
+        wattroff(lists_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    } else {
+        wattron(lists_win, COLOR_PAIR(CP_BLUE));
+        box(lists_win, 0, 0);
+        wattroff(lists_win, COLOR_PAIR(CP_BLUE));
+        
+        wattron(lists_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        mvwprintw(lists_win, 0, 2, " doTUI ");
+        wattroff(lists_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        
+        wattron(lists_win, COLOR_PAIR(CP_BLUE));
+        mvwprintw(lists_win, 0, 9, "| Categories ");
+        wattroff(lists_win, COLOR_PAIR(CP_BLUE));
+    }
+    
+    for (size_t i = 0; i < lists.size(); ++i) {
+        bool is_selected = (i == selected_list_idx);
+        std::string list_name = lists[i].name;
+        size_t count = lists[i].tasks.size();
+        std::string display_str = list_name + " (" + std::to_string(count) + ")";
+        
+        int max_len = lists_w - 6;
+        if (max_len < 5) max_len = 5;
+        if (display_str.length() > (size_t)max_len) {
+            display_str = display_str.substr(0, max_len - 3) + "...";
+        }
+        
+        if (is_selected) {
+            if (active_focus == Focus::Lists) {
+                wattron(lists_win, COLOR_PAIR(CP_CYAN) | A_REVERSE | A_BOLD);
+                mvwprintw(lists_win, 2 + i, 2, " > %-*s", max_len, display_str.c_str());
+                wattroff(lists_win, COLOR_PAIR(CP_CYAN) | A_REVERSE | A_BOLD);
+            } else {
+                wattron(lists_win, COLOR_PAIR(CP_BLUE) | A_REVERSE);
+                mvwprintw(lists_win, 2 + i, 2, " > %-*s", max_len, display_str.c_str());
+                wattroff(lists_win, COLOR_PAIR(CP_BLUE) | A_REVERSE);
+            }
+        } else {
+            mvwprintw(lists_win, 2 + i, 2, "   %-*s", max_len, display_str.c_str());
+        }
+    }
+    wnoutrefresh(lists_win);
+}
 
-#endif // TUI_HPP
+void draw_tasks(WINDOW* tasks_win, const std::vector<List>& lists, size_t selected_list_idx, size_t selected_task_idx, Focus active_focus, const std::vector<size_t>& pending_indices, const std::vector<size_t>& completed_indices, const Keymap& keymap) {
+    werase(tasks_win);
+    int tasks_w = getmaxx(tasks_win);
+    
+    std::string tasks_title = " Tasks ";
+    if (!lists.empty() && selected_list_idx < lists.size()) {
+        tasks_title = " Tasks: " + lists[selected_list_idx].name + " ";
+    }
+    if (tasks_title.length() > (size_t)tasks_w - 6) {
+        tasks_title = tasks_title.substr(0, tasks_w - 9) + "... ";
+    }
+    
+    if (active_focus == Focus::Tasks) {
+        wattron(tasks_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        box(tasks_win, 0, 0);
+        mvwprintw(tasks_win, 0, 2, "%s", tasks_title.c_str());
+        wattroff(tasks_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    } else {
+        wattron(tasks_win, COLOR_PAIR(CP_BLUE));
+        box(tasks_win, 0, 0);
+        mvwprintw(tasks_win, 0, 2, "%s", tasks_title.c_str());
+        wattroff(tasks_win, COLOR_PAIR(CP_BLUE));
+    }
+    
+    if (!lists.empty() && selected_list_idx < lists.size()) {
+        const auto& active_list = lists[selected_list_idx];
+        if (active_list.tasks.empty()) {
+            mvwprintw(tasks_win, 2, 2, "No tasks in this list.");
+            
+            auto create_keys = keymap.get_keys_for_action(Action::Create);
+            std::string create_str = "";
+            if (!create_keys.empty()) {
+                for (size_t i = 0; i < create_keys.size(); ++i) {
+                    if (i > 0) create_str += " or ";
+                    create_str += "'" + create_keys[i] + "'";
+                }
+                mvwprintw(tasks_win, 4, 2, "Press %s to add a new task.", create_str.c_str());
+            } else {
+                mvwprintw(tasks_win, 4, 2, "Press 'n' to add a new task.");
+            }
+            
+            auto cmd_keys = keymap.get_keys_for_action(Action::EnterCommandMode);
+            if (!cmd_keys.empty()) {
+                mvwprintw(tasks_win, 5, 2, "Or press '%s' and type ':new <title>'.", cmd_keys[0].c_str());
+            } else {
+                mvwprintw(tasks_win, 5, 2, "Or use ':new <title>' via command bar.");
+            }
+        } else if (pending_indices.empty() && completed_indices.empty()) {
+            mvwprintw(tasks_win, 2, 2, "No tasks match your search.");
+            mvwprintw(tasks_win, 3, 2, "Press Esc to clear search.");
+        } else {
+            int row = 2;
+            // Draw pending tasks
+            for (size_t i = 0; i < pending_indices.size(); ++i) {
+                size_t actual_idx = pending_indices[i];
+                const auto& task = active_list.tasks[actual_idx];
+                bool is_selected = (i == selected_task_idx);
+                
+                std::string status_box = "[ ]";
+                std::string display_str = status_box + " " + task.title;
+                
+                int max_len = tasks_w - 6;
+                if (max_len < 10) max_len = 10;
+                if (display_str.length() > (size_t)max_len) {
+                    display_str = display_str.substr(0, max_len - 3) + "...";
+                }
+                
+                if (is_selected) {
+                    if (active_focus == Focus::Tasks) {
+                        wattron(tasks_win, COLOR_PAIR(CP_CYAN) | A_REVERSE | A_BOLD);
+                        mvwprintw(tasks_win, row++, 2, " > %-*s", max_len, display_str.c_str());
+                        wattroff(tasks_win, COLOR_PAIR(CP_CYAN) | A_REVERSE | A_BOLD);
+                    } else {
+                        wattron(tasks_win, COLOR_PAIR(CP_BLUE) | A_REVERSE);
+                        mvwprintw(tasks_win, row++, 2, " > %-*s", max_len, display_str.c_str());
+                        wattroff(tasks_win, COLOR_PAIR(CP_BLUE) | A_REVERSE);
+                    }
+                } else {
+                    mvwprintw(tasks_win, row++, 2, "   %s  %s", status_box.c_str(), task.title.substr(0, max_len - 6).c_str());
+                }
+            }
+            
+            // Draw Completed divider and tasks
+            if (!completed_indices.empty()) {
+                wattron(tasks_win, COLOR_PAIR(CP_BLUE) | A_DIM);
+                mvwprintw(tasks_win, row++, 2, " --- Completed Tasks ---");
+                wattroff(tasks_win, COLOR_PAIR(CP_BLUE) | A_DIM);
+                
+                for (size_t i = 0; i < completed_indices.size(); ++i) {
+                    size_t actual_idx = completed_indices[i];
+                    const auto& task = active_list.tasks[actual_idx];
+                    size_t virtual_idx = pending_indices.size() + i;
+                    bool is_selected = (virtual_idx == selected_task_idx);
+                    
+                    std::string status_box = "[X]";
+                    std::string display_str = status_box + " " + task.title;
+                    
+                    int max_len = tasks_w - 6;
+                    if (max_len < 10) max_len = 10;
+                    if (display_str.length() > (size_t)max_len) {
+                        display_str = display_str.substr(0, max_len - 3) + "...";
+                    }
+                    
+                    if (is_selected) {
+                        if (active_focus == Focus::Tasks) {
+                            wattron(tasks_win, COLOR_PAIR(CP_CYAN) | A_REVERSE | A_BOLD);
+                            mvwprintw(tasks_win, row++, 2, " > %-*s", max_len, display_str.c_str());
+                            wattroff(tasks_win, COLOR_PAIR(CP_CYAN) | A_REVERSE | A_BOLD);
+                        } else {
+                            wattron(tasks_win, COLOR_PAIR(CP_BLUE) | A_REVERSE);
+                            mvwprintw(tasks_win, row++, 2, " > %-*s", max_len, display_str.c_str());
+                            wattroff(tasks_win, COLOR_PAIR(CP_BLUE) | A_REVERSE);
+                        }
+                    } else {
+                        wattron(tasks_win, COLOR_PAIR(CP_GREEN));
+                        mvwprintw(tasks_win, row, 2, "   %s", status_box.c_str());
+                        wattroff(tasks_win, COLOR_PAIR(CP_GREEN));
+                        mvwprintw(tasks_win, row++, 8, "%s", task.title.substr(0, max_len - 6).c_str());
+                    }
+                }
+            }
+        }
+    }
+    wnoutrefresh(tasks_win);
+}
+
+void draw_details(WINDOW* details_win, bool has_selection, const Task& task, int& details_scroll_idx, Focus active_focus) {
+    werase(details_win);
+    int details_h, details_w;
+    getmaxyx(details_win, details_h, details_w);
+    
+    if (active_focus == Focus::Details) {
+        wattron(details_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        box(details_win, 0, 0);
+        mvwprintw(details_win, 0, 2, " Task Details ");
+        wattroff(details_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    } else {
+        wattron(details_win, COLOR_PAIR(CP_BLUE));
+        box(details_win, 0, 0);
+        mvwprintw(details_win, 0, 2, " Task Details ");
+        wattroff(details_win, COLOR_PAIR(CP_BLUE));
+    }
+    
+    if (has_selection) {
+        // Draw Title
+        wattron(details_win, A_BOLD | COLOR_PAIR(CP_CYAN));
+        mvwprintw(details_win, 2, 2, "Title: %s", task.title.c_str());
+        wattroff(details_win, A_BOLD | COLOR_PAIR(CP_CYAN));
+        
+        // Draw Status
+        mvwprintw(details_win, 3, 2, "Status: ");
+        if (task.completed) {
+            wattron(details_win, COLOR_PAIR(CP_GREEN) | A_BOLD);
+            wprintw(details_win, "Completed");
+            wattroff(details_win, COLOR_PAIR(CP_GREEN) | A_BOLD);
+        } else {
+            wattron(details_win, COLOR_PAIR(CP_RED) | A_BOLD);
+            wprintw(details_win, "Pending");
+            wattroff(details_win, COLOR_PAIR(CP_RED) | A_BOLD);
+        }
+        
+        // Draw Type & Time
+        std::string relative_time = get_relative_time_string(task.time_value);
+        wprintw(details_win, "    Type: ");
+        if (task.type == TaskType::Activity) {
+            wattron(details_win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
+            wprintw(details_win, "Activity");
+            wattroff(details_win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
+            
+            mvwprintw(details_win, 4, 2, "Starts at: %s%s", task.time_value.c_str(), relative_time.c_str());
+        } else {
+            wattron(details_win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
+            wprintw(details_win, "Assignment");
+            wattroff(details_win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
+            
+            mvwprintw(details_win, 4, 2, "Due by: %s%s", task.time_value.c_str(), relative_time.c_str());
+        }
+        
+        // Draw Recurrence
+        mvwprintw(details_win, 5, 2, "Recurrence: ");
+        wattron(details_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        wprintw(details_win, "%s", recurrence_to_string(task.recurrence).c_str());
+        wattroff(details_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        
+        // Draw Description
+        mvwprintw(details_win, 6, 2, "Description:");
+        int max_desc_w = details_w - 6;
+        auto wrapped = wrap_text(task.description, max_desc_w);
+        int start_row = 7;
+        int max_rows = details_h - start_row - 2;
+        int max_scroll = (int)wrapped.size() - max_rows;
+        if (max_scroll < 0) max_scroll = 0;
+        details_scroll_idx = std::min(details_scroll_idx, max_scroll);
+        details_scroll_idx = std::max(details_scroll_idx, 0);
+        
+        for (int r = 0; r < max_rows && (r + details_scroll_idx) < (int)wrapped.size(); ++r) {
+            mvwprintw(details_win, start_row + r, 4, "%-s", wrapped[r + details_scroll_idx].c_str());
+        }
+    } else {
+        mvwprintw(details_win, 2, 2, "No task selected.");
+    }
+    wnoutrefresh(details_win);
+}
+
+} // namespace Tui

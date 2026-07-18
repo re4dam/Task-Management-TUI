@@ -1,20 +1,18 @@
-CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++17 -O3
-LDFLAGS = -lncurses
-
 TARGET = dotui
-SRCS = src/main.cpp
-
-PREFIX ?= /usr/local
-BINDIR = $(PREFIX)/bin
+BUILD_DIR = build
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) src/task.hpp src/list.hpp src/storage.hpp src/tui.hpp src/keybinds.hpp src/toml.hpp
-	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
+$(TARGET):
+	mkdir -p $(BUILD_DIR)
+	cd $(BUILD_DIR) && cmake .. && $(MAKE)
+	cp $(BUILD_DIR)/$(TARGET) .
 
 clean:
-	rm -f $(TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET)
+
+PREFIX ?= /usr/local
+BINDIR = $(PREFIX)/bin
 
 install: $(TARGET)
 	install -d $(DESTDIR)$(BINDIR)

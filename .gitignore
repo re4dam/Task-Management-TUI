@@ -1,5 +1,6 @@
 # Compiled binaries
 dotui
+/build/
 
 # Object files
 *.o
