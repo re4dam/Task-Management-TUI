@@ -217,6 +217,14 @@ void execute_command(const std::string& command_query, std::vector<List>& lists,
                 }
             }
         }
+    } else if (cmd_name == "theme") {
+        if (cmd_args.empty()) {
+            Tui::show_confirm_dialog("Error", "Theme name required!");
+        } else {
+            Tui::apply_theme(cmd_args);
+            Tui::save_theme_to_config(cmd_args);
+            clear();
+        }
     } else {
         Tui::show_confirm_dialog("Error", "Unknown command: " + cmd_name);
     }
@@ -259,6 +267,24 @@ int main() {
     
     Keymap keymap;
     keymap.load_from_file();
+    
+    Tui::generate_sample_dracula_theme();
+    std::string active_theme = "default";
+    try {
+        std::string config_path = keymap.get_config_path();
+        if (std::filesystem::exists(config_path)) {
+            auto config = toml::parse_file(config_path);
+            auto theme_tbl = config["theme"].as_table();
+            if (theme_tbl) {
+                auto active_val = theme_tbl->get("active");
+                if (active_val && active_val->is_string()) {
+                    active_theme = active_val->as_string()->get();
+                }
+            }
+        }
+    } catch (...) {}
+    Tui::apply_theme(active_theme);
+    
     Mode active_mode = Mode::Normal;
     
     std::vector<List> lists = Storage::load_data(DATA_FILE);
@@ -409,7 +435,25 @@ int main() {
             const auto& active_list = lists[selected_list_idx];
             if (active_list.tasks.empty()) {
                 mvwprintw(tasks_win, 2, 2, "No tasks in this list.");
-                mvwprintw(tasks_win, 3, 2, "Press 'n' to add one.");
+                
+                auto create_keys = keymap.get_keys_for_action(Action::Create);
+                std::string create_str = "";
+                if (!create_keys.empty()) {
+                    for (size_t i = 0; i < create_keys.size(); ++i) {
+                        if (i > 0) create_str += " or ";
+                        create_str += "'" + create_keys[i] + "'";
+                    }
+                    mvwprintw(tasks_win, 4, 2, "Press %s to add a new task.", create_str.c_str());
+                } else {
+                    mvwprintw(tasks_win, 4, 2, "Press 'n' to add a new task.");
+                }
+                
+                auto cmd_keys = keymap.get_keys_for_action(Action::EnterCommandMode);
+                if (!cmd_keys.empty()) {
+                    mvwprintw(tasks_win, 5, 2, "Or press '%s' and type ':new <title>'.", cmd_keys[0].c_str());
+                } else {
+                    mvwprintw(tasks_win, 5, 2, "Or use ':new <title>' via command bar.");
+                }
             } else if (pending_indices.empty() && completed_indices.empty()) {
                 mvwprintw(tasks_win, 2, 2, "No tasks match your search.");
                 mvwprintw(tasks_win, 3, 2, "Press Esc to clear search.");
@@ -722,7 +766,7 @@ int main() {
                     search_query.clear();
                 }
             } else if (action == Action::Help) {
-                Tui::show_help_dialog();
+                Tui::show_help_dialog(keymap, active_mode);
                 touchwin(lists_win);
                 touchwin(tasks_win);
                 touchwin(details_win);

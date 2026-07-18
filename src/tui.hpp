@@ -8,6 +8,8 @@
 #include <sstream>
 #include <ctime>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include "list.hpp"
 #include "task.hpp"
 #include "keybinds.hpp"
@@ -29,6 +31,139 @@ const int CP_YELLOW = 4;
 const int CP_RED = 5;
 const int CP_POPUP_HEADER = 6;
 const int CP_POPUP_HIGHLIGHT = 7;
+
+inline short string_to_ncurses_color(const std::string& str) {
+    std::string s = str;
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    if (s == "black") return COLOR_BLACK;
+    if (s == "red") return COLOR_RED;
+    if (s == "green") return COLOR_GREEN;
+    if (s == "yellow") return COLOR_YELLOW;
+    if (s == "blue") return COLOR_BLUE;
+    if (s == "magenta") return COLOR_MAGENTA;
+    if (s == "cyan") return COLOR_CYAN;
+    if (s == "white") return COLOR_WHITE;
+    return -1; // Default
+}
+
+inline std::string get_config_dir() {
+    std::string path;
+    const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
+    if (xdg_config && *xdg_config != '\0') {
+        path = std::string(xdg_config) + "/dotui";
+    } else {
+        const char* home = std::getenv("HOME");
+        if (home) {
+            path = std::string(home) + "/.config/dotui";
+        } else {
+            path = ".config/dotui";
+        }
+    }
+    return path;
+}
+
+inline bool apply_theme(const std::string& theme_name) {
+    short border_unfocused_fg = COLOR_BLUE, border_unfocused_bg = -1;
+    short border_focused_fg = COLOR_CYAN, border_focused_bg = -1;
+    short success_fg = COLOR_GREEN, success_bg = -1;
+    short warning_fg = COLOR_YELLOW, warning_bg = -1;
+    short danger_fg = COLOR_RED, danger_bg = -1;
+    short popup_header_fg = COLOR_WHITE, popup_header_bg = COLOR_BLUE;
+    short popup_highlight_fg = COLOR_BLACK, popup_highlight_bg = COLOR_CYAN;
+    
+    bool loaded = false;
+    if (theme_name != "default" && !theme_name.empty()) {
+        std::string theme_path = get_config_dir() + "/themes/" + theme_name + ".toml";
+        if (std::filesystem::exists(theme_path)) {
+            try {
+                auto tbl = toml::parse_file(theme_path);
+                auto colors = tbl["colors"].as_table();
+                if (colors) {
+                    loaded = true;
+                    auto parse_color = [&](const char* key, short& target) {
+                        auto val = colors->get(key);
+                        if (val && val->is_string()) {
+                            target = string_to_ncurses_color(val->as_string()->get());
+                        }
+                    };
+                    
+                    parse_color("border_unfocused_fg", border_unfocused_fg);
+                    parse_color("border_unfocused_bg", border_unfocused_bg);
+                    parse_color("border_focused_fg", border_focused_fg);
+                    parse_color("border_focused_bg", border_focused_bg);
+                    parse_color("success_fg", success_fg);
+                    parse_color("success_bg", success_bg);
+                    parse_color("warning_fg", warning_fg);
+                    parse_color("warning_bg", warning_bg);
+                    parse_color("danger_fg", danger_fg);
+                    parse_color("danger_bg", danger_bg);
+                    parse_color("popup_header_fg", popup_header_fg);
+                    parse_color("popup_header_bg", popup_header_bg);
+                    parse_color("popup_highlight_fg", popup_highlight_fg);
+                    parse_color("popup_highlight_bg", popup_highlight_bg);
+                }
+            } catch (...) {}
+        }
+    }
+    
+    init_pair(CP_BLUE, border_unfocused_fg, border_unfocused_bg);
+    init_pair(CP_CYAN, border_focused_fg, border_focused_bg);
+    init_pair(CP_GREEN, success_fg, success_bg);
+    init_pair(CP_YELLOW, warning_fg, warning_bg);
+    init_pair(CP_RED, danger_fg, danger_bg);
+    init_pair(CP_POPUP_HEADER, popup_header_fg, popup_header_bg);
+    init_pair(CP_POPUP_HIGHLIGHT, popup_highlight_fg, popup_highlight_bg);
+    
+    return loaded;
+}
+
+inline void save_theme_to_config(const std::string& theme_name) {
+    std::string path = get_config_dir() + "/config.toml";
+    try {
+        toml::table tbl;
+        if (std::filesystem::exists(path)) {
+            tbl = toml::parse_file(path);
+        }
+        toml::table theme_tbl;
+        theme_tbl.insert_or_assign("active", theme_name);
+        tbl.insert_or_assign("theme", theme_tbl);
+        
+        std::ofstream out(path);
+        if (out.is_open()) {
+            out << tbl << "\n";
+        }
+    } catch (...) {}
+}
+
+inline void generate_sample_dracula_theme() {
+    std::string themes_dir = get_config_dir() + "/themes";
+    std::string path = themes_dir + "/dracula.toml";
+    try {
+        if (!std::filesystem::exists(themes_dir)) {
+            std::filesystem::create_directories(themes_dir);
+        }
+        if (!std::filesystem::exists(path)) {
+            std::ofstream out(path);
+            if (out.is_open()) {
+                out << "[colors]\n"
+                    << "border_unfocused_fg = \"blue\"\n"
+                    << "border_unfocused_bg = \"default\"\n"
+                    << "border_focused_fg = \"magenta\"\n"
+                    << "border_focused_bg = \"default\"\n"
+                    << "success_fg = \"green\"\n"
+                    << "success_bg = \"default\"\n"
+                    << "warning_fg = \"yellow\"\n"
+                    << "warning_bg = \"default\"\n"
+                    << "danger_fg = \"red\"\n"
+                    << "danger_bg = \"default\"\n"
+                    << "popup_header_fg = \"white\"\n"
+                    << "popup_header_bg = \"magenta\"\n"
+                    << "popup_highlight_fg = \"black\"\n"
+                    << "popup_highlight_bg = \"magenta\"\n";
+            }
+        }
+    } catch (...) {}
+}
 
 // Forward declarations
 inline int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel = 0);
@@ -1079,53 +1214,128 @@ inline int show_snooze_dialog(bool& cancelled) {
 
 
 // Shows help and keybindings modal dialog.
-inline void show_help_dialog() {
-    int height = 18;
-    int width = 72;
-    int start_y = (LINES - height) / 2;
-    int start_x = (COLS - width) / 2;
+inline std::string action_to_description(Action action) {
+    switch (action) {
+        case Action::MoveUp: return "Move cursor up / scroll up";
+        case Action::MoveDown: return "Move cursor down / scroll down";
+        case Action::FocusLeft: return "Focus left pane";
+        case Action::FocusRight: return "Focus right pane";
+        case Action::TogglePaneFocus: return "Focus next pane";
+        case Action::Create: return "Create category or task";
+        case Action::Edit: return "Edit category or task";
+        case Action::Delete: return "Delete category or task";
+        case Action::Sort: return "Sort items / shift position";
+        case Action::ToggleComplete: return "Toggle task complete / incomplete";
+        case Action::Snooze: return "Snooze task (postpone deadline)";
+        case Action::MoveToCategory: return "Move task to another category";
+        case Action::Search: return "Filter tasks / search";
+        case Action::Help: return "Show help overlays";
+        case Action::Quit: return "Save all data and quit";
+        case Action::EnterNormalMode: return "Exit to normal mode";
+        case Action::EnterInsertMode: return "Enter insert mode";
+        case Action::EnterVisualMode: return "Enter visual mode";
+        case Action::EnterCommandMode: return "Open command bar";
+        case Action::OpenDatePicker: return "Open date picker";
+        case Action::CycleTheme: return "Cycle visual themes";
+        case Action::Confirm: return "Confirm selection";
+        case Action::Cancel: return "Cancel/dismiss";
+        default: return "None";
+    }
+}
+
+inline void show_help_dialog(const Keymap& keymap, Mode current_mode) {
+    int height = LINES;
+    int width = COLS;
+    int start_y = 0;
+    int start_x = 0;
     
     WINDOW* win = newwin(height, width, start_y, start_x);
     keypad(win, TRUE);
-    box(win, 0, 0);
+    werase(win);
     
+    wattron(win, COLOR_PAIR(CP_BLUE) | A_BOLD);
+    box(win, 0, 0);
+    wattroff(win, COLOR_PAIR(CP_BLUE) | A_BOLD);
+    
+    std::string mode_str = "";
+    if (current_mode == Mode::Normal) mode_str = "Normal";
+    else if (current_mode == Mode::Insert) mode_str = "Insert";
+    else if (current_mode == Mode::Visual) mode_str = "Visual";
+    else if (current_mode == Mode::Command) mode_str = "Command";
+    
+    std::string title = " doTUI Live Keybindings (" + mode_str + " Mode) ";
     wattron(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
-    mvwprintw(win, 0, (width - 20) / 2, " Help & Keybindings ");
+    mvwprintw(win, 0, (width - title.length()) / 2, "%s", title.c_str());
     wattroff(win, COLOR_PAIR(CP_POPUP_HEADER) | A_BOLD);
     
-    int r = 1;
-    wattron(win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
-    mvwprintw(win, r++, 2, "General Navigation:");
-    wattroff(win, COLOR_PAIR(CP_YELLOW) | A_BOLD);
-    mvwprintw(win, r++, 4, "Tab / h / l  - Switch active pane");
-    mvwprintw(win, r++, 4, "/            - Filter tasks (Search)");
-    mvwprintw(win, r++, 4, "?            - Show this help tooltip");
-    mvwprintw(win, r++, 4, "q            - Save and Exit application");
+    // Group mappings by action
+    std::map<Action, std::vector<std::string>> action_keys;
+    auto mode_it = keymap.mappings.find(current_mode);
+    if (mode_it != keymap.mappings.end()) {
+        for (const auto& [keycode, action] : mode_it->second) {
+            std::string key_str = keycode_to_string(keycode);
+            if (key_str != "unknown") {
+                action_keys[action].push_back(key_str);
+            }
+        }
+    }
     
+    int r = 2;
+    mvwprintw(win, r++, 4, "Below are the active keyboard shortcuts configured for %s Mode:", mode_str.c_str());
     r++;
-    wattron(win, COLOR_PAIR(CP_CYAN) | A_BOLD);
-    mvwprintw(win, r++, 2, "Category Actions:");
-    wattroff(win, COLOR_PAIR(CP_CYAN) | A_BOLD);
-    mvwprintw(win, r++, 4, "j / k        - Scroll list");
-    mvwprintw(win, r++, 4, "n / a        - Create new category");
-    mvwprintw(win, r++, 4, "e            - Rename category");
-    mvwprintw(win, r++, 4, "d / x        - Delete category");
-    mvwprintw(win, r++, 4, "s            - Sort or shift categories");
     
-    r++;
-    wattron(win, COLOR_PAIR(CP_GREEN) | A_BOLD);
-    mvwprintw(win, r++, 2, "Task Actions:");
-    wattroff(win, COLOR_PAIR(CP_GREEN) | A_BOLD);
-    mvwprintw(win, r++, 4, "j / k        - Scroll list");
-    mvwprintw(win, r++, 4, "Space        - Toggle completion (recurrence)");
-    mvwprintw(win, r++, 4, "n / a / e    - Add / Edit task details");
-    mvwprintw(win, r++, 4, "d / x        - Delete task");
-    mvwprintw(win, r++, 4, "p / m        - Snooze task / Move to category");
-    mvwprintw(win, r++, 4, "s            - Sort or shift task positions");
+    std::vector<std::pair<std::string, std::vector<Action>>> sections = {
+        {"Navigation & Panes", {Action::MoveUp, Action::MoveDown, Action::FocusLeft, Action::FocusRight, Action::TogglePaneFocus}},
+        {"Editing & Deleting", {Action::Create, Action::Edit, Action::Delete, Action::ToggleComplete, Action::Snooze, Action::MoveToCategory, Action::Sort}},
+        {"Application Commands", {Action::Search, Action::Help, Action::EnterCommandMode, Action::CycleTheme, Action::Quit}}
+    };
     
-    mvwprintw(win, height - 2, (width - 24) / 2, "(Press any key to close)");
+    for (const auto& section : sections) {
+        if (r >= height - 4) break;
+        
+        bool section_has_keys = false;
+        for (auto action : section.second) {
+            if (action_keys.find(action) != action_keys.end()) {
+                section_has_keys = true;
+                break;
+            }
+        }
+        
+        if (!section_has_keys) continue;
+        
+        wattron(win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        mvwprintw(win, r++, 6, "%s:", section.first.c_str());
+        wattroff(win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        
+        for (auto action : section.second) {
+            auto it = action_keys.find(action);
+            if (it != action_keys.end()) {
+                std::string keys_joined = "";
+                for (size_t i = 0; i < it->second.size(); ++i) {
+                    if (i > 0) keys_joined += " / ";
+                    keys_joined += it->second[i];
+                }
+                
+                int key_col_w = 20;
+                std::string desc = action_to_description(action);
+                
+                wattron(win, COLOR_PAIR(CP_YELLOW));
+                mvwprintw(win, r, 8, "%*s", key_col_w, keys_joined.c_str());
+                wattroff(win, COLOR_PAIR(CP_YELLOW));
+                
+                mvwprintw(win, r, 8 + key_col_w, "  -  %s", desc.c_str());
+                r++;
+            }
+        }
+        r++; // spacer
+    }
+    
+    std::string footer_msg = " (Press any key to close) ";
+    wattron(win, A_REVERSE);
+    mvwprintw(win, height - 2, (width - footer_msg.length()) / 2, "%s", footer_msg.c_str());
+    wattroff(win, A_REVERSE);
+    
     wrefresh(win);
-    
     wgetch(win);
     delwin(win);
 }

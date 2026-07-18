@@ -205,6 +205,22 @@ public:
         mappings[Mode::Command][27] = Action::EnterNormalMode;
     }
 
+    std::vector<std::string> get_keys_for_action(Action action, Mode mode = Mode::Normal) const {
+        std::vector<std::string> keys;
+        auto mode_it = mappings.find(mode);
+        if (mode_it != mappings.end()) {
+            for (const auto& [keycode, act] : mode_it->second) {
+                if (act == action) {
+                    std::string k_str = keycode_to_string(keycode);
+                    if (k_str != "unknown") {
+                        keys.push_back(k_str);
+                    }
+                }
+            }
+        }
+        return keys;
+    }
+
     std::string get_config_path() const {
         std::string path;
         const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
