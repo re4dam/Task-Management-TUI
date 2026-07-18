@@ -8,17 +8,16 @@
 #include <sstream>
 #include "list.hpp"
 #include "task.hpp"
+#include "keybinds.hpp"
 
 enum class Focus {
     Lists,
     Tasks,
+    Details,
     Search
 };
 
 namespace Tui {
-
-// Forward declarations
-inline int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel = 0);
 
 // Color Pair constants
 const int CP_BLUE = 1;
@@ -28,6 +27,37 @@ const int CP_YELLOW = 4;
 const int CP_RED = 5;
 const int CP_POPUP_HEADER = 6;
 const int CP_POPUP_HIGHLIGHT = 7;
+
+// Forward declarations
+inline int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel = 0);
+inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::string& search_query) {
+    if (!footer_win) return;
+    werase(footer_win);
+    wattron(footer_win, COLOR_PAIR(CP_BLUE) | A_BOLD);
+    box(footer_win, 0, 0);
+    wattroff(footer_win, COLOR_PAIR(CP_BLUE) | A_BOLD);
+    
+    std::string mode_str = "";
+    if (mode == Mode::Normal) mode_str = "-- NORMAL --";
+    else if (mode == Mode::Insert) mode_str = "-- INSERT --";
+    else if (mode == Mode::Visual) mode_str = "-- VISUAL --";
+    else if (mode == Mode::Command) mode_str = "-- COMMAND --";
+    
+    wattron(footer_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    mvwprintw(footer_win, 1, 2, "%s", mode_str.c_str());
+    wattroff(footer_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    
+    int offset = mode_str.length() + 4;
+    if (focus == Focus::Search) {
+        mvwprintw(footer_win, 1, offset, "Search: %s", search_query.c_str());
+    } else if (!search_query.empty()) {
+        mvwprintw(footer_win, 1, offset, "Search (Active): %s  |  Esc to clear", search_query.c_str());
+    } else {
+        std::string footer_text = "Tab: Pane | Space: Toggle | n: New | dd: Del | e: Edit | s: Sort | q: Exit | /: Search";
+        mvwprintw(footer_win, 1, offset + (COLS - offset - footer_text.length()) / 2, "%s", footer_text.c_str());
+    }
+    wrefresh(footer_win);
+}
 
 inline void init_tui() {
     initscr();
@@ -85,75 +115,174 @@ inline std::vector<std::string> wrap_text(const std::string& text, int width) {
 
 // Prompts user for a text input line inside a centered popup dialog.
 // ESC cancels the dialog.
-inline void redraw_input_field(WINDOW* win, int y, int x, int width, const std::string& input) {
+inline void redraw_input_field(WINDOW* win, int y, int x, int width, const std::string& input, int cursor_pos) {
     wattron(win, A_UNDERLINE);
     for (int i = 0; i < width; ++i) {
         mvwaddch(win, y, x + i, ' ');
     }
     
     std::string visible_part = "";
-    int cursor_offset = 0;
+    int scroll_offset = 0;
     if (input.length() < (size_t)width) {
         visible_part = input;
-        cursor_offset = input.length();
+        scroll_offset = 0;
     } else {
-        visible_part = input.substr(input.length() - width + 1);
-        cursor_offset = width - 1;
+        if (cursor_pos < width - 5) {
+            visible_part = input.substr(0, width);
+            scroll_offset = 0;
+        } else {
+            scroll_offset = cursor_pos - width + 5;
+            if (scroll_offset + width > (int)input.length()) {
+                scroll_offset = (int)input.length() - width;
+            }
+            if (scroll_offset < 0) scroll_offset = 0;
+            visible_part = input.substr(scroll_offset, width);
+        }
     }
     
     mvwprintw(win, y, x, "%s", visible_part.c_str());
     wattroff(win, A_UNDERLINE);
-    wmove(win, y, x + cursor_offset);
+    
+    int relative_cursor = cursor_pos - scroll_offset;
+    if (relative_cursor < 0) relative_cursor = 0;
+    if (relative_cursor >= width) relative_cursor = width - 1;
+    
+    wmove(win, y, x + relative_cursor);
     wrefresh(win);
 }
 
-// Prompts user for a text input line inside a centered popup dialog.
-// ESC cancels the dialog. Supports horizontal scrolling for inputs exceeding width.
-inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& cancelled, const std::string& initial_val = "") {
+inline std::string get_input_field(WINDOW* win, int y, int x, int width, bool& cancelled, const std::string& initial_val = "", WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
     std::string input = initial_val;
+    int cursor_pos = input.length();
+    
+    Mode local_mode = Mode::Insert;
+    if (global_mode) {
+        *global_mode = Mode::Insert;
+    }
+    
+    if (footer_win) {
+        draw_footer(footer_win, local_mode, Focus::Tasks, "");
+    }
+    
     curs_set(1);
     noecho();
+    keypad(win, TRUE);
     
-    redraw_input_field(win, y, x, width, input);
+    redraw_input_field(win, y, x, width, input, cursor_pos);
     
     while (true) {
         int ch = wgetch(win);
-        if (ch == 27) { // ESC key or Alt key sequence
-            nodelay(win, TRUE);
-            int next_ch = wgetch(win);
-            nodelay(win, FALSE);
-            if (next_ch == KEY_BACKSPACE || next_ch == 127 || next_ch == 8) {
-                while (!input.empty() && input.back() == ' ') {
-                    input.pop_back();
+        
+        if (local_mode == Mode::Insert) {
+            if (ch == 27) { // ESC key or Alt key sequence
+                nodelay(win, TRUE);
+                int next_ch = wgetch(win);
+                nodelay(win, FALSE);
+                if (next_ch == KEY_BACKSPACE || next_ch == 127 || next_ch == 8) {
+                    while (cursor_pos > 0 && input[cursor_pos - 1] == ' ') {
+                        input.erase(cursor_pos - 1, 1);
+                        cursor_pos--;
+                    }
+                    while (cursor_pos > 0 && input[cursor_pos - 1] != ' ') {
+                        input.erase(cursor_pos - 1, 1);
+                        cursor_pos--;
+                    }
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                } else if (next_ch == ERR) {
+                    local_mode = Mode::Normal;
+                    if (global_mode) {
+                        *global_mode = Mode::Normal;
+                    }
+                    if (footer_win) {
+                        draw_footer(footer_win, local_mode, Focus::Tasks, "");
+                    }
+                    if (cursor_pos > 0 && cursor_pos == (int)input.length()) {
+                        cursor_pos--;
+                    }
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
                 }
-                while (!input.empty() && input.back() != ' ') {
-                    input.pop_back();
+            } else if (ch == '\n' || ch == '\r') {
+                break;
+            } else if (ch == KEY_LEFT) {
+                if (cursor_pos > 0) {
+                    cursor_pos--;
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
                 }
-                redraw_input_field(win, y, x, width, input);
-            } else if (next_ch == ERR) {
+            } else if (ch == KEY_RIGHT) {
+                if (cursor_pos < (int)input.length()) {
+                    cursor_pos++;
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                }
+            } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+                if (cursor_pos > 0) {
+                    input.erase(cursor_pos - 1, 1);
+                    cursor_pos--;
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                }
+            } else if (ch >= 32 && ch <= 126) {
+                if (input.length() < 100) {
+                    input.insert(cursor_pos, 1, ch);
+                    cursor_pos++;
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                }
+            }
+        } else { // Normal Mode
+            if (ch == 27) { // ESC in Normal mode cancels the dialog
                 cancelled = true;
                 curs_set(0);
+                if (global_mode) {
+                    *global_mode = Mode::Normal;
+                }
                 return "";
-            }
-        }
-        if (ch == '\n' || ch == '\r') {
-            break;
-        }
-        if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
-            if (!input.empty()) {
-                input.pop_back();
-                redraw_input_field(win, y, x, width, input);
-            }
-        } else if (ch >= 32 && ch <= 126) {
-            // Cap total input length at 100 characters for safety
-            if (input.length() < 100) {
-                input.push_back(ch);
-                redraw_input_field(win, y, x, width, input);
+            } else if (ch == '\n' || ch == '\r') {
+                break;
+            } else if (ch == 'i') {
+                local_mode = Mode::Insert;
+                if (global_mode) {
+                    *global_mode = Mode::Insert;
+                }
+                if (footer_win) {
+                    draw_footer(footer_win, local_mode, Focus::Tasks, "");
+                }
+                redraw_input_field(win, y, x, width, input, cursor_pos);
+            } else if (ch == 'a') {
+                local_mode = Mode::Insert;
+                if (global_mode) {
+                    *global_mode = Mode::Insert;
+                }
+                if (footer_win) {
+                    draw_footer(footer_win, local_mode, Focus::Tasks, "");
+                }
+                if (cursor_pos < (int)input.length()) {
+                    cursor_pos++;
+                }
+                redraw_input_field(win, y, x, width, input, cursor_pos);
+            } else if (ch == 'h' || ch == KEY_LEFT) {
+                if (cursor_pos > 0) {
+                    cursor_pos--;
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                }
+            } else if (ch == 'l' || ch == KEY_RIGHT) {
+                if (cursor_pos < (int)input.length() - 1) {
+                    cursor_pos++;
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                }
+            } else if (ch == 'x') {
+                if (!input.empty() && cursor_pos >= 0 && cursor_pos < (int)input.length()) {
+                    input.erase(cursor_pos, 1);
+                    if (cursor_pos >= (int)input.length() && cursor_pos > 0) {
+                        cursor_pos--;
+                    }
+                    redraw_input_field(win, y, x, width, input, cursor_pos);
+                }
             }
         }
     }
     curs_set(0);
     cancelled = false;
+    if (global_mode) {
+        *global_mode = Mode::Normal;
+    }
     return input;
 }
 
@@ -217,7 +346,7 @@ inline bool show_confirm_dialog(const std::string& title, const std::string& mes
 }
 
 // Shows input modal dialog for creating a list.
-inline std::string show_list_input_dialog(bool& cancelled) {
+inline std::string show_list_input_dialog(bool& cancelled, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
     int height = 8;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -234,14 +363,14 @@ inline std::string show_list_input_dialog(bool& cancelled) {
     mvwprintw(win, 2, 4, "Enter list name:");
     mvwprintw(win, 5, (width - 38) / 2, "(Press Enter to submit, ESC to cancel)");
     
-    std::string name = get_input_field(win, 3, 4, width - 8, cancelled);
+    std::string name = get_input_field(win, 3, 4, width - 8, cancelled, "", footer_win, global_mode);
     
     delwin(win);
     return name;
 }
 
 // Shows input modal dialog for renaming a list.
-inline std::string show_list_edit_dialog(const std::string& current_name, bool& cancelled) {
+inline std::string show_list_edit_dialog(const std::string& current_name, bool& cancelled, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
     int height = 8;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -258,7 +387,7 @@ inline std::string show_list_edit_dialog(const std::string& current_name, bool& 
     mvwprintw(win, 2, 4, "Edit list name:");
     mvwprintw(win, 5, (width - 38) / 2, "(Press Enter to submit, ESC to cancel)");
     
-    std::string name = get_input_field(win, 3, 4, width - 8, cancelled, current_name);
+    std::string name = get_input_field(win, 3, 4, width - 8, cancelled, current_name, footer_win, global_mode);
     
     delwin(win);
     return name;
@@ -326,7 +455,7 @@ inline std::string get_preset_date(int days_offset) {
     return std::string(buf);
 }
 
-inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, const std::string& initial_val = "") {
+inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, const std::string& initial_val = "", WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
     std::vector<std::string> options = {
         "Today",
         "Tomorrow",
@@ -368,7 +497,7 @@ inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, c
         mvwprintw(win, 2, 4, "Enter Date/Time (YYYY-MM-DD HH:MM):");
         mvwprintw(win, 5, (width - 38) / 2, "(Press Enter to submit, ESC to cancel)");
         
-        std::string typed_val = get_input_field(win, 3, 4, width - 8, cancelled, initial_val);
+        std::string typed_val = get_input_field(win, 3, 4, width - 8, cancelled, initial_val, footer_win, global_mode);
         delwin(win);
         return typed_val;
     }
@@ -389,7 +518,7 @@ inline std::string show_datetime_picker_dialog(TaskType type, bool& cancelled, c
     mvwprintw(win, 4, 4, "Enter time (HH:MM, default 12:00):");
     mvwprintw(win, 6, (width - 38) / 2, "(Press Enter to submit, ESC to cancel)");
     
-    std::string time_val = get_input_field(win, 5, 4, width - 8, cancelled, "12:00");
+    std::string time_val = get_input_field(win, 5, 4, width - 8, cancelled, "12:00", footer_win, global_mode);
     delwin(win);
     
     if (cancelled) {
@@ -510,7 +639,7 @@ inline std::string show_multiline_editor_dialog(const std::string& title, const 
     }
 }
 
-inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out) {
+inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
     int height = 14;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -529,7 +658,7 @@ inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::s
     
     // Prompt 1: Title
     mvwprintw(win, 2, 4, "1. Task Title:");
-    std::string title = get_input_field(win, 3, 4, width - 8, cancelled);
+    std::string title = get_input_field(win, 3, 4, width - 8, cancelled, "", footer_win, global_mode);
     if (cancelled || title.empty()) {
         delwin(win);
         return false;
@@ -560,7 +689,7 @@ inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::s
     mvwprintw(win, 8, 4, "%s", time_prompt.c_str());
     mvwprintw(win, 9, 4, "(Opening Preset Selector...)");
     wrefresh(win);
-    std::string time_val = show_datetime_picker_dialog(type, cancelled);
+    std::string time_val = show_datetime_picker_dialog(type, cancelled, "", footer_win, global_mode);
     touchwin(win);
     wrefresh(win);
     if (cancelled) {
@@ -586,7 +715,7 @@ inline bool show_task_input_dialog(TaskType type, std::string& title_out, std::s
     return true;
 }
 
-inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, const std::string& init_desc, const std::string& init_time, RecurrenceRule init_recurrence, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out) {
+inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, const std::string& init_desc, const std::string& init_time, RecurrenceRule init_recurrence, std::string& title_out, std::string& desc_out, std::string& time_out, RecurrenceRule& recurrence_out, WINDOW* footer_win = nullptr, Mode* global_mode = nullptr) {
     int height = 14;
     int width = 60;
     int start_y = (LINES - height) / 2;
@@ -617,7 +746,7 @@ inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, 
     
     // Prompt 1: Title
     mvwprintw(win, 2, 4, "1. Task Title:");
-    std::string title = get_input_field(win, 3, 4, width - 8, cancelled, init_title);
+    std::string title = get_input_field(win, 3, 4, width - 8, cancelled, init_title, footer_win, global_mode);
     if (cancelled || title.empty()) {
         delwin(win);
         return false;
@@ -648,7 +777,7 @@ inline bool show_task_edit_dialog(TaskType type, const std::string& init_title, 
     mvwprintw(win, 8, 4, "%s", time_prompt.c_str());
     mvwprintw(win, 9, 4, "(Opening Preset Selector...)");
     wrefresh(win);
-    std::string time_val = show_datetime_picker_dialog(type, cancelled, init_time);
+    std::string time_val = show_datetime_picker_dialog(type, cancelled, init_time, footer_win, global_mode);
     touchwin(win);
     wrefresh(win);
     if (cancelled) {

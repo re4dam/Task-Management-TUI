@@ -30,18 +30,21 @@ void setup_windows(WINDOW*& header_win, WINDOW*& lists_win, WINDOW*& tasks_win, 
     
     header_win = newwin(3, COLS, 0, 0);
     int main_h = LINES - 6;
-    int lists_w = 28;
-    if (lists_w > COLS - 15) lists_w = COLS / 3;
-    int right_w = COLS - lists_w;
+    
+    int lists_w = COLS * 0.25;
+    if (lists_w < 20) lists_w = 20;
+    int tasks_w = COLS * 0.40;
+    if (tasks_w < 30) tasks_w = 30;
+    if (lists_w + tasks_w > COLS - 15) {
+        lists_w = COLS / 4;
+        tasks_w = COLS / 3;
+    }
+    int details_w = COLS - lists_w - tasks_w;
+    if (details_w < 10) details_w = 10;
     
     lists_win = newwin(main_h, lists_w, 3, 0);
-    
-    int tasks_h = main_h * 0.6;
-    if (tasks_h < 5) tasks_h = 5;
-    int details_h = main_h - tasks_h;
-    
-    tasks_win = newwin(tasks_h, right_w, 3, lists_w);
-    details_win = newwin(details_h, right_w, 3 + tasks_h, lists_w);
+    tasks_win = newwin(main_h, tasks_w, 3, lists_w);
+    details_win = newwin(main_h, details_w, 3, lists_w + tasks_w);
     
     footer_win = newwin(3, COLS, LINES - 3, 0);
     
@@ -68,6 +71,7 @@ int main() {
     
     size_t selected_list_idx = 0;
     size_t selected_task_idx = 0;
+    int details_scroll_idx = 0;
     Focus active_focus = Focus::Lists;
     std::string search_query = "";
     
@@ -113,6 +117,14 @@ int main() {
             selected_task_idx = std::min(selected_task_idx, visible_task_count - 1);
         }
         
+        static size_t last_list_idx = 0;
+        static size_t last_task_idx = 0;
+        if (selected_list_idx != last_list_idx || selected_task_idx != last_task_idx) {
+            details_scroll_idx = 0;
+            last_list_idx = selected_list_idx;
+            last_task_idx = selected_task_idx;
+        }
+        
         // --- DRAW HEADER ---
         werase(header_win);
         wattron(header_win, COLOR_PAIR(Tui::CP_BLUE) | A_BOLD);
@@ -126,20 +138,7 @@ int main() {
         wnoutrefresh(header_win);
         
         // --- DRAW FOOTER ---
-        werase(footer_win);
-        wattron(footer_win, COLOR_PAIR(Tui::CP_BLUE) | A_BOLD);
-        box(footer_win, 0, 0);
-        wattroff(footer_win, COLOR_PAIR(Tui::CP_BLUE) | A_BOLD);
-        
-        if (active_focus == Focus::Search) {
-            mvwprintw(footer_win, 1, 2, "Search: %s", search_query.c_str());
-        } else if (!search_query.empty()) {
-            mvwprintw(footer_win, 1, 2, "Search (Active): %s  |  Esc to clear", search_query.c_str());
-        } else {
-            std::string footer_text = "Tab: Pane | Space: Toggle | n: New | d: Del | e: Edit | s: Sort | q: Exit | /: Search";
-            mvwprintw(footer_win, 1, (COLS - footer_text.length()) / 2, "%s", footer_text.c_str());
-        }
-        wnoutrefresh(footer_win);
+        Tui::draw_footer(footer_win, active_mode, active_focus, search_query);
         
         // --- DRAW LISTS ---
         werase(lists_win);
@@ -297,10 +296,17 @@ int main() {
         int details_h, details_w;
         getmaxyx(details_win, details_h, details_w);
         
-        wattron(details_win, COLOR_PAIR(Tui::CP_BLUE));
-        box(details_win, 0, 0);
-        mvwprintw(details_win, 0, 2, " Task Details ");
-        wattroff(details_win, COLOR_PAIR(Tui::CP_BLUE));
+        if (active_focus == Focus::Details) {
+            wattron(details_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
+            box(details_win, 0, 0);
+            mvwprintw(details_win, 0, 2, " Task Details ");
+            wattroff(details_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
+        } else {
+            wattron(details_win, COLOR_PAIR(Tui::CP_BLUE));
+            box(details_win, 0, 0);
+            mvwprintw(details_win, 0, 2, " Task Details ");
+            wattroff(details_win, COLOR_PAIR(Tui::CP_BLUE));
+        }
         
         bool has_selection = false;
         Task task;
@@ -362,8 +368,13 @@ int main() {
             auto wrapped = Tui::wrap_text(task.description, max_desc_w);
             int start_row = 7;
             int max_rows = details_h - start_row - 2;
-            for (int r = 0; r < (int)wrapped.size() && r < max_rows; ++r) {
-                mvwprintw(details_win, start_row + r, 4, "%s", wrapped[r].c_str());
+            int max_scroll = (int)wrapped.size() - max_rows;
+            if (max_scroll < 0) max_scroll = 0;
+            details_scroll_idx = std::min(details_scroll_idx, max_scroll);
+            details_scroll_idx = std::max(details_scroll_idx, 0);
+            
+            for (int r = 0; r < max_rows && (r + details_scroll_idx) < (int)wrapped.size(); ++r) {
+                mvwprintw(details_win, start_row + r, 4, "%-s", wrapped[r + details_scroll_idx].c_str());
             }
         } else {
             mvwprintw(details_win, 2, 2, "No task selected.");
@@ -379,7 +390,7 @@ int main() {
         doupdate();
         
         // --- INPUT LOOP ---
-        int ch = wgetch(active_focus == Focus::Search ? footer_win : (active_focus == Focus::Lists ? lists_win : tasks_win));
+        int ch = wgetch(active_focus == Focus::Search ? footer_win : (active_focus == Focus::Lists ? lists_win : (active_focus == Focus::Tasks ? tasks_win : details_win)));
         
         if (ch == KEY_RESIZE) {
             setup_windows(header_win, lists_win, tasks_win, details_win, footer_win);
@@ -387,9 +398,22 @@ int main() {
             continue;
         }
         
+        static bool pending_d = false;
         Action action = Action::None;
         if (active_focus != Focus::Search) {
-            action = keymap.resolve(ch, active_mode);
+            if (active_mode == Mode::Normal && ch == 'd') {
+                if (!pending_d) {
+                    pending_d = true;
+                    Tui::draw_footer(footer_win, active_mode, active_focus, search_query);
+                    continue;
+                } else {
+                    action = Action::Delete;
+                    pending_d = false;
+                }
+            } else {
+                pending_d = false;
+                action = keymap.resolve(ch, active_mode);
+            }
         }
         
         if (active_focus == Focus::Search) {
@@ -408,7 +432,9 @@ int main() {
                 }
             }
         } else {
-            if (action == Action::Search) {
+            if (action == Action::EnterNormalMode) {
+                active_mode = Mode::Normal;
+            } else if (action == Action::Search) {
                 active_focus = Focus::Search;
             } else if (action == Action::Cancel) {
                 if (!search_query.empty()) {
@@ -430,7 +456,17 @@ int main() {
                 Storage::save_data(lists, DATA_FILE);
                 running = false;
             } else if (action == Action::TogglePaneFocus) {
-                active_focus = (active_focus == Focus::Lists) ? Focus::Tasks : Focus::Lists;
+                if (active_focus == Focus::Lists) active_focus = Focus::Tasks;
+                else if (active_focus == Focus::Tasks) active_focus = Focus::Details;
+                else if (active_focus == Focus::Details) active_focus = Focus::Lists;
+            } else if (action == Action::FocusRight) {
+                if (active_focus == Focus::Lists) active_focus = Focus::Tasks;
+                else if (active_focus == Focus::Tasks) active_focus = Focus::Details;
+                else if (active_focus == Focus::Details) active_focus = Focus::Lists;
+            } else if (action == Action::FocusLeft) {
+                if (active_focus == Focus::Lists) active_focus = Focus::Details;
+                else if (active_focus == Focus::Tasks) active_focus = Focus::Lists;
+                else if (active_focus == Focus::Details) active_focus = Focus::Tasks;
             } else if (active_focus == Focus::Lists) {
                 if (action == Action::MoveUp) {
                     if (selected_list_idx > 0) {
@@ -442,11 +478,9 @@ int main() {
                         selected_list_idx++;
                         selected_task_idx = 0;
                     }
-                } else if (action == Action::FocusRight) {
-                    active_focus = Focus::Tasks;
                 } else if (action == Action::Create) {
                     bool cancelled = false;
-                    std::string list_name = Tui::show_list_input_dialog(cancelled);
+                    std::string list_name = Tui::show_list_input_dialog(cancelled, footer_win, &active_mode);
                     if (!cancelled && !list_name.empty()) {
                         List nl;
                         nl.name = list_name;
@@ -457,7 +491,7 @@ int main() {
                 } else if (action == Action::Edit) {
                     if (!lists.empty()) {
                         bool cancelled = false;
-                        std::string new_name = Tui::show_list_edit_dialog(lists[selected_list_idx].name, cancelled);
+                        std::string new_name = Tui::show_list_edit_dialog(lists[selected_list_idx].name, cancelled, footer_win, &active_mode);
                         if (!cancelled && !new_name.empty()) {
                             lists[selected_list_idx].name = new_name;
                         }
@@ -512,17 +546,25 @@ int main() {
                         }
                     }
                 }
-            } else if (active_focus == Focus::Tasks) {
+            } else if (active_focus == Focus::Tasks || active_focus == Focus::Details) {
                 if (action == Action::MoveUp) {
-                    if (selected_task_idx > 0) {
-                        selected_task_idx--;
+                    if (active_focus == Focus::Tasks) {
+                        if (selected_task_idx > 0) {
+                            selected_task_idx--;
+                        }
+                    } else {
+                        if (details_scroll_idx > 0) {
+                            details_scroll_idx--;
+                        }
                     }
                 } else if (action == Action::MoveDown) {
-                    if (!lists.empty() && selected_task_idx < pending_indices.size() + completed_indices.size() - 1) {
-                        selected_task_idx++;
+                    if (active_focus == Focus::Tasks) {
+                        if (!lists.empty() && selected_task_idx < pending_indices.size() + completed_indices.size() - 1) {
+                            selected_task_idx++;
+                        }
+                    } else {
+                        details_scroll_idx++;
                     }
-                } else if (action == Action::FocusLeft) {
-                    active_focus = Focus::Lists;
                 } else if (action == Action::ToggleComplete) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
@@ -624,7 +666,7 @@ int main() {
                         if (!cancelled) {
                             std::string title, desc, time_val;
                             RecurrenceRule recurrence = RecurrenceRule::None;
-                            if (Tui::show_task_input_dialog(type, title, desc, time_val, recurrence)) {
+                            if (Tui::show_task_input_dialog(type, title, desc, time_val, recurrence, footer_win, &active_mode)) {
                                 Task nt;
                                 nt.title = title;
                                 nt.description = desc;
@@ -647,7 +689,7 @@ int main() {
                             auto& task = active_list.tasks[actual_task_idx];
                             std::string title, desc, time_val;
                             RecurrenceRule recurrence = RecurrenceRule::None;
-                            if (Tui::show_task_edit_dialog(task.type, task.title, task.description, task.time_value, task.recurrence, title, desc, time_val, recurrence)) {
+                            if (Tui::show_task_edit_dialog(task.type, task.title, task.description, task.time_value, task.recurrence, title, desc, time_val, recurrence, footer_win, &active_mode)) {
                                 task.title = title;
                                 task.description = desc;
                                 task.time_value = time_val;

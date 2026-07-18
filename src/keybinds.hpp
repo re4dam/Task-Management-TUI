@@ -180,6 +180,7 @@ public:
         mappings[Mode::Normal]['h'] = Action::FocusLeft;
         mappings[Mode::Normal]['l'] = Action::FocusRight;
         mappings[Mode::Normal][9] = Action::TogglePaneFocus; // Tab
+        mappings[Mode::Normal][KEY_BTAB] = Action::FocusLeft; // Shift+Tab
         mappings[Mode::Normal]['n'] = Action::Create;
         mappings[Mode::Normal]['a'] = Action::Create;
         mappings[Mode::Normal]['e'] = Action::Edit;
