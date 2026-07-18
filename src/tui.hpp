@@ -30,7 +30,7 @@ const int CP_POPUP_HIGHLIGHT = 7;
 
 // Forward declarations
 inline int show_selection_dialog(const std::string& title, const std::string& prompt, const std::vector<std::string>& options, bool& cancelled, int default_sel = 0);
-inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::string& search_query) {
+inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::string& search_query, const std::string& command_query = "") {
     if (!footer_win) return;
     werase(footer_win);
     wattron(footer_win, COLOR_PAIR(CP_BLUE) | A_BOLD);
@@ -48,7 +48,9 @@ inline void draw_footer(WINDOW* footer_win, Mode mode, Focus focus, const std::s
     wattroff(footer_win, COLOR_PAIR(CP_CYAN) | A_BOLD);
     
     int offset = mode_str.length() + 4;
-    if (focus == Focus::Search) {
+    if (mode == Mode::Command) {
+        mvwprintw(footer_win, 1, offset, ":%s", command_query.c_str());
+    } else if (focus == Focus::Search) {
         mvwprintw(footer_win, 1, offset, "Search: %s", search_query.c_str());
     } else if (!search_query.empty()) {
         mvwprintw(footer_win, 1, offset, "Search (Active): %s  |  Esc to clear", search_query.c_str());

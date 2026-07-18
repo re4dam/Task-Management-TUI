@@ -192,6 +192,7 @@ public:
         mappings[Mode::Normal]['m'] = Action::MoveToCategory;
         mappings[Mode::Normal]['/'] = Action::Search;
         mappings[Mode::Normal]['?'] = Action::Help;
+        mappings[Mode::Normal][':'] = Action::EnterCommandMode;
         mappings[Mode::Normal]['q'] = Action::Quit;
 
         // Default Insert mode keys (minimal for now)

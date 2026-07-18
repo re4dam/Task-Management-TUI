@@ -21,6 +21,152 @@ inline bool contains_substring(const std::string& str, const std::string& sub) {
     return it != str.end();
 }
 
+inline std::string trim(const std::string& str) {
+    size_t first = str.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    size_t last = str.find_last_not_of(" \t\r\n");
+    return str.substr(first, (last - first + 1));
+}
+
+void execute_command(const std::string& command_query, std::vector<List>& lists, size_t& selected_list_idx, size_t& selected_task_idx, Focus& active_focus, bool& running, const std::vector<size_t>& pending_indices, const std::vector<size_t>& completed_indices, WINDOW* footer_win, Mode& active_mode) {
+    std::string cmd = command_query;
+    if (!cmd.empty() && cmd[0] == ':') {
+        cmd = cmd.substr(1);
+    }
+    cmd = trim(cmd);
+    if (cmd.empty()) return;
+    
+    std::string cmd_name = "";
+    std::string cmd_args = "";
+    size_t space_pos = cmd.find(' ');
+    if (space_pos != std::string::npos) {
+        cmd_name = cmd.substr(0, space_pos);
+        cmd_args = trim(cmd.substr(space_pos + 1));
+    } else {
+        cmd_name = cmd;
+    }
+    
+    std::transform(cmd_name.begin(), cmd_name.end(), cmd_name.begin(), ::tolower);
+    
+    if (cmd_name == "q" || cmd_name == "quit") {
+        Storage::save_data(lists, DATA_FILE);
+        running = false;
+    } else if (cmd_name == "w" || cmd_name == "write") {
+        Storage::save_data(lists, DATA_FILE);
+    } else if (cmd_name == "new" || cmd_name == "todo") {
+        if (lists.empty()) {
+            Tui::show_confirm_dialog("Error", "Create a category first!");
+        } else if (cmd_args.empty()) {
+            Tui::show_confirm_dialog("Error", "Task title cannot be empty!");
+        } else {
+            Task nt;
+            nt.title = cmd_args;
+            nt.completed = false;
+            nt.type = TaskType::Assignment;
+            nt.time_value = "";
+            nt.recurrence = RecurrenceRule::None;
+            lists[selected_list_idx].tasks.push_back(nt);
+            selected_task_idx = lists[selected_list_idx].tasks.size() - 1;
+        }
+    } else if (cmd_name == "delete" || cmd_name == "d") {
+        if (active_focus == Focus::Lists) {
+            if (!lists.empty()) {
+                std::string confirm_msg = "Delete list '" + lists[selected_list_idx].name + "'?";
+                if (Tui::show_confirm_dialog("Confirm Delete", confirm_msg)) {
+                    lists.erase(lists.begin() + selected_list_idx);
+                    if (selected_list_idx > 0 && selected_list_idx >= lists.size()) {
+                        selected_list_idx = lists.size() - 1;
+                    }
+                    selected_task_idx = 0;
+                    if (lists.empty()) {
+                        List default_list;
+                        default_list.name = "Inbox";
+                        lists.push_back(default_list);
+                        selected_list_idx = 0;
+                    }
+                }
+            }
+        } else {
+            if (!lists.empty() && selected_list_idx < lists.size()) {
+                auto& active_list = lists[selected_list_idx];
+                if (!active_list.tasks.empty() && selected_task_idx < pending_indices.size() + completed_indices.size()) {
+                    size_t actual_task_idx = (selected_task_idx < pending_indices.size())
+                                             ? pending_indices[selected_task_idx]
+                                             : completed_indices[selected_task_idx - pending_indices.size()];
+                    std::string confirm_msg = "Delete task '" + active_list.tasks[actual_task_idx].title + "'?";
+                    if (Tui::show_confirm_dialog("Confirm Delete", confirm_msg)) {
+                        active_list.tasks.erase(active_list.tasks.begin() + actual_task_idx);
+                        if (selected_task_idx > 0 && selected_task_idx >= active_list.tasks.size()) {
+                            selected_task_idx = active_list.tasks.size() - 1;
+                        }
+                    }
+                }
+            }
+        }
+    } else if (cmd_name == "edit" || cmd_name == "e") {
+        if (active_focus == Focus::Lists) {
+            if (!lists.empty()) {
+                bool cancelled = false;
+                std::string new_name = Tui::show_list_edit_dialog(lists[selected_list_idx].name, cancelled, footer_win, &active_mode);
+                if (!cancelled && !new_name.empty()) {
+                    lists[selected_list_idx].name = new_name;
+                }
+            }
+        } else {
+            if (!lists.empty() && selected_list_idx < lists.size()) {
+                auto& active_list = lists[selected_list_idx];
+                if (!active_list.tasks.empty() && selected_task_idx < pending_indices.size() + completed_indices.size()) {
+                    size_t actual_task_idx = (selected_task_idx < pending_indices.size())
+                                             ? pending_indices[selected_task_idx]
+                                             : completed_indices[selected_task_idx - pending_indices.size()];
+                    auto& task = active_list.tasks[actual_task_idx];
+                    std::string title, desc, time_val;
+                    RecurrenceRule recurrence = RecurrenceRule::None;
+                    if (Tui::show_task_edit_dialog(task.type, task.title, task.description, task.time_value, task.recurrence, title, desc, time_val, recurrence, footer_win, &active_mode)) {
+                        task.title = title;
+                        task.description = desc;
+                        task.time_value = time_val;
+                        task.recurrence = recurrence;
+                    }
+                }
+            }
+        }
+    } else if (cmd_name == "sort" || cmd_name == "s") {
+        std::string args_lower = cmd_args;
+        std::transform(args_lower.begin(), args_lower.end(), args_lower.begin(), ::tolower);
+        
+        if (active_focus == Focus::Lists) {
+            if (!lists.empty() && lists.size() > 1) {
+                if (args_lower == "alpha" || args_lower == "alphabetical" || args_lower.empty()) {
+                    std::sort(lists.begin(), lists.end(), [](const List& a, const List& b) {
+                        return a.name < b.name;
+                    });
+                }
+            }
+        } else {
+            if (!lists.empty() && selected_list_idx < lists.size()) {
+                auto& active_list = lists[selected_list_idx];
+                if (active_list.tasks.size() > 1) {
+                    if (args_lower == "title" || args_lower.empty()) {
+                        std::sort(active_list.tasks.begin(), active_list.tasks.end(), [](const Task& a, const Task& b) {
+                            return a.title < b.title;
+                        });
+                    } else if (args_lower == "date" || args_lower == "time") {
+                        std::sort(active_list.tasks.begin(), active_list.tasks.end(), [](const Task& a, const Task& b) {
+                            if (a.time_value.empty() && b.time_value.empty()) return false;
+                            if (a.time_value.empty()) return false;
+                            if (b.time_value.empty()) return true;
+                            return a.time_value < b.time_value;
+                        });
+                    }
+                }
+            }
+        }
+    } else {
+        Tui::show_confirm_dialog("Error", "Unknown command: " + cmd_name);
+    }
+}
+
 void setup_windows(WINDOW*& header_win, WINDOW*& lists_win, WINDOW*& tasks_win, WINDOW*& details_win, WINDOW*& footer_win) {
     if (header_win) delwin(header_win);
     if (lists_win) delwin(lists_win);
@@ -28,8 +174,8 @@ void setup_windows(WINDOW*& header_win, WINDOW*& lists_win, WINDOW*& tasks_win, 
     if (details_win) delwin(details_win);
     if (footer_win) delwin(footer_win);
     
-    header_win = newwin(3, COLS, 0, 0);
-    int main_h = LINES - 6;
+    header_win = nullptr;
+    int main_h = LINES - 3;
     
     int lists_w = COLS * 0.25;
     if (lists_w < 20) lists_w = 20;
@@ -42,9 +188,9 @@ void setup_windows(WINDOW*& header_win, WINDOW*& lists_win, WINDOW*& tasks_win, 
     int details_w = COLS - lists_w - tasks_w;
     if (details_w < 10) details_w = 10;
     
-    lists_win = newwin(main_h, lists_w, 3, 0);
-    tasks_win = newwin(main_h, tasks_w, 3, lists_w);
-    details_win = newwin(main_h, details_w, 3, lists_w + tasks_w);
+    lists_win = newwin(main_h, lists_w, 0, 0);
+    tasks_win = newwin(main_h, tasks_w, 0, lists_w);
+    details_win = newwin(main_h, details_w, 0, lists_w + tasks_w);
     
     footer_win = newwin(3, COLS, LINES - 3, 0);
     
@@ -74,6 +220,7 @@ int main() {
     int details_scroll_idx = 0;
     Focus active_focus = Focus::Lists;
     std::string search_query = "";
+    std::string command_query = "";
     
     WINDOW* header_win = nullptr;
     WINDOW* lists_win = nullptr;
@@ -125,20 +272,8 @@ int main() {
             last_task_idx = selected_task_idx;
         }
         
-        // --- DRAW HEADER ---
-        werase(header_win);
-        wattron(header_win, COLOR_PAIR(Tui::CP_BLUE) | A_BOLD);
-        box(header_win, 0, 0);
-        wattroff(header_win, COLOR_PAIR(Tui::CP_BLUE) | A_BOLD);
-        
-        wattron(header_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
-        std::string title = "doTUI";
-        mvwprintw(header_win, 1, (COLS - title.length()) / 2, "%s", title.c_str());
-        wattroff(header_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
-        wnoutrefresh(header_win);
-        
         // --- DRAW FOOTER ---
-        Tui::draw_footer(footer_win, active_mode, active_focus, search_query);
+        Tui::draw_footer(footer_win, active_mode, active_focus, search_query, command_query);
         
         // --- DRAW LISTS ---
         werase(lists_win);
@@ -147,12 +282,19 @@ int main() {
         if (active_focus == Focus::Lists) {
             wattron(lists_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
             box(lists_win, 0, 0);
-            mvwprintw(lists_win, 0, 2, " Categories ");
+            mvwprintw(lists_win, 0, 2, " doTUI | Categories ");
             wattroff(lists_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
         } else {
             wattron(lists_win, COLOR_PAIR(Tui::CP_BLUE));
             box(lists_win, 0, 0);
-            mvwprintw(lists_win, 0, 2, " Categories ");
+            wattroff(lists_win, COLOR_PAIR(Tui::CP_BLUE));
+            
+            wattron(lists_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
+            mvwprintw(lists_win, 0, 2, " doTUI ");
+            wattroff(lists_win, COLOR_PAIR(Tui::CP_CYAN) | A_BOLD);
+            
+            wattron(lists_win, COLOR_PAIR(Tui::CP_BLUE));
+            mvwprintw(lists_win, 0, 9, "| Categories ");
             wattroff(lists_win, COLOR_PAIR(Tui::CP_BLUE));
         }
         
@@ -380,9 +522,19 @@ int main() {
             mvwprintw(details_win, 2, 2, "No task selected.");
         }
         wnoutrefresh(details_win);
-        if (active_focus == Focus::Search) {
+        if (active_mode == Mode::Command) {
             curs_set(1);
-            wmove(footer_win, 1, 10 + search_query.length());
+            int offset = 13 + 4; // length of "-- COMMAND --" + 4
+            wmove(footer_win, 1, offset + 1 + command_query.length());
+            wnoutrefresh(footer_win);
+        } else if (active_focus == Focus::Search) {
+            curs_set(1);
+            std::string mode_str = "";
+            if (active_mode == Mode::Normal) mode_str = "-- NORMAL --";
+            else if (active_mode == Mode::Insert) mode_str = "-- INSERT --";
+            else if (active_mode == Mode::Visual) mode_str = "-- VISUAL --";
+            int offset = mode_str.length() + 4;
+            wmove(footer_win, 1, offset + 8 + search_query.length()); // "Search: " is 8 chars
             wnoutrefresh(footer_win);
         } else {
             curs_set(0);
@@ -395,6 +547,28 @@ int main() {
         if (ch == KEY_RESIZE) {
             setup_windows(header_win, lists_win, tasks_win, details_win, footer_win);
             clear();
+            continue;
+        }
+        
+        if (active_mode == Mode::Command) {
+            if (ch == 27) { // ESC
+                active_mode = Mode::Normal;
+                command_query.clear();
+            } else if (ch == '\n' || ch == '\r') {
+                execute_command(command_query, lists, selected_list_idx, selected_task_idx, active_focus, running, pending_indices, completed_indices, footer_win, active_mode);
+                active_mode = Mode::Normal;
+                command_query.clear();
+            } else if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+                if (!command_query.empty()) {
+                    command_query.pop_back();
+                } else {
+                    active_mode = Mode::Normal;
+                }
+            } else if (ch >= 32 && ch <= 126) {
+                if (command_query.length() < 80) {
+                    command_query.push_back(ch);
+                }
+            }
             continue;
         }
         
@@ -434,6 +608,9 @@ int main() {
         } else {
             if (action == Action::EnterNormalMode) {
                 active_mode = Mode::Normal;
+            } else if (action == Action::EnterCommandMode) {
+                active_mode = Mode::Command;
+                command_query.clear();
             } else if (action == Action::Search) {
                 active_focus = Focus::Search;
             } else if (action == Action::Cancel) {
@@ -442,12 +619,10 @@ int main() {
                 }
             } else if (action == Action::Help) {
                 Tui::show_help_dialog();
-                touchwin(header_win);
                 touchwin(lists_win);
                 touchwin(tasks_win);
                 touchwin(details_win);
                 touchwin(footer_win);
-                wnoutrefresh(header_win);
                 wnoutrefresh(lists_win);
                 wnoutrefresh(tasks_win);
                 wnoutrefresh(details_win);
