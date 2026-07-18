@@ -7,6 +7,7 @@
 #include "list.hpp"
 #include "storage.hpp"
 #include "tui.hpp"
+#include "keybinds.hpp"
 
 const std::string DATA_FILE = Storage::get_data_filepath();
 
@@ -51,6 +52,10 @@ void setup_windows(WINDOW*& header_win, WINDOW*& lists_win, WINDOW*& tasks_win, 
 
 int main() {
     Tui::init_tui();
+    
+    Keymap keymap;
+    keymap.load_from_file();
+    Mode active_mode = Mode::Normal;
     
     std::vector<List> lists = Storage::load_data(DATA_FILE);
     
@@ -382,6 +387,11 @@ int main() {
             continue;
         }
         
+        Action action = Action::None;
+        if (active_focus != Focus::Search) {
+            action = keymap.resolve(ch, active_mode);
+        }
+        
         if (active_focus == Focus::Search) {
             if (ch == 27) { // ESC
                 search_query.clear();
@@ -398,13 +408,13 @@ int main() {
                 }
             }
         } else {
-            if (ch == '/') {
+            if (action == Action::Search) {
                 active_focus = Focus::Search;
-            } else if (ch == 27) { // ESC in navigation
+            } else if (action == Action::Cancel) {
                 if (!search_query.empty()) {
                     search_query.clear();
                 }
-            } else if (ch == '?') {
+            } else if (action == Action::Help) {
                 Tui::show_help_dialog();
                 touchwin(header_win);
                 touchwin(lists_win);
@@ -416,25 +426,25 @@ int main() {
                 wnoutrefresh(tasks_win);
                 wnoutrefresh(details_win);
                 wnoutrefresh(footer_win);
-            } else if (ch == 'q') {
+            } else if (action == Action::Quit) {
                 Storage::save_data(lists, DATA_FILE);
                 running = false;
-            } else if (ch == '\t') {
+            } else if (action == Action::TogglePaneFocus) {
                 active_focus = (active_focus == Focus::Lists) ? Focus::Tasks : Focus::Lists;
             } else if (active_focus == Focus::Lists) {
-                if (ch == KEY_LEFT || ch == KEY_UP || ch == 'k') {
+                if (action == Action::MoveUp) {
                     if (selected_list_idx > 0) {
                         selected_list_idx--;
                         selected_task_idx = 0;
                     }
-                } else if (ch == KEY_RIGHT || ch == KEY_DOWN || ch == 'j') {
+                } else if (action == Action::MoveDown) {
                     if (!lists.empty() && selected_list_idx < lists.size() - 1) {
                         selected_list_idx++;
                         selected_task_idx = 0;
                     }
-                } else if (ch == 'l') {
+                } else if (action == Action::FocusRight) {
                     active_focus = Focus::Tasks;
-                } else if (ch == 'n' || ch == 'a') {
+                } else if (action == Action::Create) {
                     bool cancelled = false;
                     std::string list_name = Tui::show_list_input_dialog(cancelled);
                     if (!cancelled && !list_name.empty()) {
@@ -444,7 +454,7 @@ int main() {
                         selected_list_idx = lists.size() - 1;
                         selected_task_idx = 0;
                     }
-                } else if (ch == 'e') {
+                } else if (action == Action::Edit) {
                     if (!lists.empty()) {
                         bool cancelled = false;
                         std::string new_name = Tui::show_list_edit_dialog(lists[selected_list_idx].name, cancelled);
@@ -452,7 +462,7 @@ int main() {
                             lists[selected_list_idx].name = new_name;
                         }
                     }
-                } else if (ch == 'd' || ch == 'x') {
+                } else if (action == Action::Delete) {
                     if (!lists.empty()) {
                         std::string confirm_msg = "Delete list '" + lists[selected_list_idx].name + "'?";
                         if (Tui::show_confirm_dialog("Confirm Delete", confirm_msg)) {
@@ -469,7 +479,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 's') {
+                } else if (action == Action::Sort) {
                     if (!lists.empty() && lists.size() > 1) {
                         bool cancelled = false;
                         std::vector<std::string> options = {
@@ -503,17 +513,17 @@ int main() {
                     }
                 }
             } else if (active_focus == Focus::Tasks) {
-                if (ch == KEY_UP || ch == 'k') {
+                if (action == Action::MoveUp) {
                     if (selected_task_idx > 0) {
                         selected_task_idx--;
                     }
-                } else if (ch == KEY_DOWN || ch == 'j') {
+                } else if (action == Action::MoveDown) {
                     if (!lists.empty() && selected_task_idx < pending_indices.size() + completed_indices.size() - 1) {
                         selected_task_idx++;
                     }
-                } else if (ch == 'h') {
+                } else if (action == Action::FocusLeft) {
                     active_focus = Focus::Lists;
-                } else if (ch == ' ') {
+                } else if (action == Action::ToggleComplete) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
                         if (selected_task_idx < pending_indices.size() + completed_indices.size()) {
@@ -548,7 +558,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 'p') {
+                } else if (action == Action::Snooze) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
                         if (!active_list.tasks.empty() && selected_task_idx < pending_indices.size() + completed_indices.size()) {
@@ -579,7 +589,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 'm') {
+                } else if (action == Action::MoveToCategory) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
                         if (!active_list.tasks.empty() && selected_task_idx < pending_indices.size() + completed_indices.size()) {
@@ -605,7 +615,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 'n' || ch == 'a') {
+                } else if (action == Action::Create) {
                     if (lists.empty()) {
                         Tui::show_confirm_dialog("Error", "Create a list first!");
                     } else {
@@ -627,7 +637,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 'e') {
+                } else if (action == Action::Edit) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
                         if (!active_list.tasks.empty() && selected_task_idx < pending_indices.size() + completed_indices.size()) {
@@ -645,7 +655,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 'd' || ch == 'x') {
+                } else if (action == Action::Delete) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
                         if (!active_list.tasks.empty() && selected_task_idx < pending_indices.size() + completed_indices.size()) {
@@ -661,7 +671,7 @@ int main() {
                             }
                         }
                     }
-                } else if (ch == 's') {
+                } else if (action == Action::Sort) {
                     if (!lists.empty() && selected_list_idx < lists.size()) {
                         auto& active_list = lists[selected_list_idx];
                         if (active_list.tasks.size() > 1) {

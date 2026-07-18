@@ -10,7 +10,7 @@ BINDIR = $(PREFIX)/bin
 
 all: $(TARGET)
 
-$(TARGET): $(SRCS) src/task.hpp src/list.hpp src/storage.hpp src/tui.hpp
+$(TARGET): $(SRCS) src/task.hpp src/list.hpp src/storage.hpp src/tui.hpp src/keybinds.hpp src/toml.hpp
 	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
 
 clean:
